@@ -1,64 +1,86 @@
 import { db } from "./firebase";
-import { ref, set, get, onValue } from "firebase/database";
+import { ref, set, get, update, onValue, remove, onDisconnect } from "firebase/database";
 
-// Tạo mã phòng ngẫu nhiên 6 ký tự
-function generateRoomId() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+function genRoomId() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-// Tạo phòng mới
-export async function createRoom(playerName) {
-  const roomId = generateRoomId();
-
+export async function createRoom(hostName) {
+  const roomId = genRoomId();
   await set(ref(db, `rooms/${roomId}`), {
     status: "waiting",
     players: {
-      player1: { name: playerName, lives: 3, ready: false }
+      player1: { name: hostName, lives: 3, online: true, rematch: false },
     },
-    game: {
-      chain: [],
-      currentLetter: "",
-      turn: "player1"
-    },
-    createdAt: Date.now()
+    game: null,
+    createdAt: Date.now(),
   });
+
+  // FIX Bug 1: onDisconnect tự dissolve nếu mất kết nối đột ngột
+  onDisconnect(ref(db, `rooms/${roomId}/status`)).set("dissolved");
 
   return roomId;
 }
 
-// Join phòng
 export async function joinRoom(roomId, playerName) {
-  const snapshot = await get(ref(db, `rooms/${roomId}`));
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  if (!snap.exists()) throw new Error("Phòng không tồn tại!");
 
-  if (!snapshot.exists()) {
-    throw new Error("Phòng không tồn tại!");
-  }
+  const room = snap.val();
+  if (room.status === "playing") throw new Error("Game đang diễn ra!");
+  if (room.status === "dissolved") throw new Error("Phòng đã đóng!");
 
-  const room = snapshot.val();
+  const players = room.players || {};
+  const slots = ["player1", "player2", "player3", "player4"];
+  const taken = Object.keys(players);
+  if (taken.length >= 4) throw new Error("Phòng đã đầy (4/4)!");
 
-  if (room.status !== "waiting") {
-    throw new Error("Phòng đã đầy hoặc đang chơi!");
-  }
+  const nextSlot = slots.find(s => !taken.includes(s));
 
-  if (room.players?.player2) {
-    throw new Error("Phòng đã có 2 người!");
-  }
+  // FIX Bug 3: Gộp tất cả thành 1 atomic write duy nhất
+  const updates = {};
+  updates[`players/${nextSlot}/name`] = playerName;
+  updates[`players/${nextSlot}/lives`] = 3;
+  updates[`players/${nextSlot}/online`] = true;
+  updates[`players/${nextSlot}/rematch`] = false;
 
-  await set(ref(db, `rooms/${roomId}/players/player2`), {
-    name: playerName,
-    lives: 3,
-    ready: false
-  });
+  const newCount = taken.length + 1;
+  if (newCount >= 2) updates["status"] = "ready";
 
-  await set(ref(db, `rooms/${roomId}/status`), "ready");
+  await update(ref(db, `rooms/${roomId}`), updates);
 
-  return true;
+  // onDisconnect cho người join
+  onDisconnect(ref(db, `rooms/${roomId}/status`)).set("dissolved");
+
+  return nextSlot;
 }
 
-// Lắng nghe thay đổi của phòng realtime
 export function listenRoom(roomId, callback) {
-  const roomRef = ref(db, `rooms/${roomId}`);
-  return onValue(roomRef, (snapshot) => {
-    callback(snapshot.val());
+  const r = ref(db, `rooms/${roomId}`);
+  // FIX Bug 2: Trả về null-safe, không crash khi phòng bị xóa
+  const unsub = onValue(r, snap => {
+    callback(snap.exists() ? snap.val() : null);
   });
+  return unsub;
+}
+
+export async function setPlayerOnline(roomId, playerRole, online) {
+  if (!roomId || !playerRole) return;
+  try {
+    await update(ref(db, `rooms/${roomId}/players/${playerRole}`), { online });
+    if (!online) {
+      const snap = await get(ref(db, `rooms/${roomId}`));
+      const room = snap.val();
+      if (room && room.status !== "finished") {
+        await update(ref(db, `rooms/${roomId}`), { status: "dissolved" });
+      }
+    }
+  } catch (e) {
+    // Ignore lỗi network khi tab đóng
+  }
+}
+
+export async function deleteRoom(roomId) {
+  await remove(ref(db, `rooms/${roomId}`));
 }
