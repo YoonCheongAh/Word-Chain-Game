@@ -17,8 +17,8 @@ export async function createRoom(hostName) {
     createdAt: Date.now(),
   });
 
-  // FIX Bug 1: onDisconnect tự dissolve nếu mất kết nối đột ngột
-  onDisconnect(ref(db, `rooms/${roomId}/status`)).set("dissolved");
+  // Chỉ đánh dấu offline khi mất kết nối, KHÔNG dissolved
+  onDisconnect(ref(db, `rooms/${roomId}/players/player1/online`)).set(false);
 
   return roomId;
 }
@@ -38,7 +38,6 @@ export async function joinRoom(roomId, playerName) {
 
   const nextSlot = slots.find(s => !taken.includes(s));
 
-  // FIX Bug 3: Gộp tất cả thành 1 atomic write duy nhất
   const updates = {};
   updates[`players/${nextSlot}/name`] = playerName;
   updates[`players/${nextSlot}/lives`] = 3;
@@ -50,15 +49,14 @@ export async function joinRoom(roomId, playerName) {
 
   await update(ref(db, `rooms/${roomId}`), updates);
 
-  // onDisconnect cho người join
-  onDisconnect(ref(db, `rooms/${roomId}/status`)).set("dissolved");
+  // Chỉ đánh dấu offline khi mất kết nối, KHÔNG dissolved
+  onDisconnect(ref(db, `rooms/${roomId}/players/${nextSlot}/online`)).set(false);
 
   return nextSlot;
 }
 
 export function listenRoom(roomId, callback) {
   const r = ref(db, `rooms/${roomId}`);
-  // FIX Bug 2: Trả về null-safe, không crash khi phòng bị xóa
   const unsub = onValue(r, snap => {
     callback(snap.exists() ? snap.val() : null);
   });
@@ -69,6 +67,8 @@ export async function setPlayerOnline(roomId, playerRole, online) {
   if (!roomId || !playerRole) return;
   try {
     await update(ref(db, `rooms/${roomId}/players/${playerRole}`), { online });
+
+    // Chỉ dissolved khi player CHỦ ĐỘNG thoát
     if (!online) {
       const snap = await get(ref(db, `rooms/${roomId}`));
       const room = snap.val();

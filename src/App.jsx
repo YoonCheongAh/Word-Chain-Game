@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { ref, onValue, update, onDisconnect } from "firebase/database";
+import { db } from "./firebase";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "./roomService";
 import { startGame, submitWord, loseLife, isValidWord, timeoutTurn, requestRematch } from "./gameService";
 
@@ -208,6 +210,12 @@ const STYLES = `
     z-index: 999;
   }
   @keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+  .offline-badge {
+    font-size: 9px; font-family: 'DM Mono', monospace;
+    background: #2a1a1a; color: #e05c5c; padding: 2px 5px;
+    border-radius: 6px; margin-left: 4px; vertical-align: middle;
+  }
 `;
 
 const TIMER_MAX = 30;
@@ -252,7 +260,21 @@ export default function App() {
     return () => document.head.removeChild(el);
   }, []);
 
-  /* ── Cleanup khi đóng tab ── */
+  /* ── Presence: reconnect tự động ── */
+  useEffect(() => {
+    if (!roomId || !myRole) return;
+    const connectedRef = ref(db, ".info/connected");
+    const unsub = onValue(connectedRef, snap => {
+      if (snap.val() === true) {
+        // Vừa (re)connect — set online lại và gia hạn onDisconnect
+        update(ref(db, `rooms/${roomId}/players/${myRole}`), { online: true });
+        onDisconnect(ref(db, `rooms/${roomId}/players/${myRole}/online`)).set(false);
+      }
+    });
+    return () => unsub();
+  }, [roomId, myRole]);
+
+  /* ── Cleanup khi đóng tab (chủ động) ── */
   useEffect(() => {
     if (!roomId || !myRole) return;
     const handleUnload = () => setPlayerOnline(roomId, myRole, false);
@@ -274,7 +296,6 @@ export default function App() {
     if (s === "playing" && screen !== "game") {
       setScreen("game");
     } else if (s === "dissolved") {
-      // Reset toàn bộ state, đưa tất cả về lobby
       resetToLobby();
     }
     if ((s === "waiting" || s === "ready") && screen === "lobby" && roomId) {
@@ -282,7 +303,7 @@ export default function App() {
     }
   }, [roomData?.status]);
 
-  /* ── Timer — reset mỗi khi turn đổi ── */
+  /* ── Timer — reset mỗi khi turn hoặc timeoutCount đổi ── */
   useEffect(() => {
     if (screen !== "game" || roomData?.status !== "playing") return;
     clearInterval(timerRef.current);
@@ -402,7 +423,6 @@ export default function App() {
   }
 
   async function handleExit() {
-    // Báo Firebase biết player này offline → trigger dissolved cho phòng
     await setPlayerOnline(roomId, myRole, false);
     resetToLobby();
   }
@@ -489,6 +509,7 @@ export default function App() {
               <div className="player-name" style={{ color: p ? "#f0ede8" : "#333" }}>
                 {p?.name ?? "Chờ người chơi..."}
                 {slot === myRole && <span className="badge-you">bạn</span>}
+                {p && !p.online && <span className="offline-badge">offline</span>}
               </div>
               <span className={`player-badge ${
                 idx === 0 ? "badge-host" :
@@ -577,7 +598,9 @@ export default function App() {
               className={`player-card${isActive ? ` ${col.activeClass}` : ""}${p?.lives <= 0 ? " dead" : ""}`}>
               {isActive && <div className={`active-dot ${col.dot}`} />}
               <div className="pc-name">
-                {role === myRole ? `👤 ${p?.name}` : `🎮 ${p?.name}`}
+                {role === myRole ? `👤 ` : `🎮 `}
+                {p?.name}
+                {!p?.online && <span className="offline-badge">offline</span>}
               </div>
               <Hearts lives={p?.lives ?? 3} />
             </div>
