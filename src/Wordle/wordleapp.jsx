@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
-import { startWordleGame, submitGuess, checkGuess, requestWordleRematch, handleWordTimeout, WORD_TIME_MS, MAX_SCORE_PER_WORD, MAX_GUESSES, WORD_LIST } from "./wordleService";
+import { startWordleGame, submitGuess, checkGuess, requestWordleRematch, handleWordTimeout, WORD_TIME_MS, MAX_SCORE_PER_WORD, MAX_GUESSES } from "./wordleService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
 
@@ -336,8 +336,10 @@ export default function WordleApp() {
   const [dissolved, setDissolved]     = useState(false);
   const [animatingRow, setAnimatingRow] = useState(null);
   const [shakeRow, setShakeRow]       = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
 
-  const timerRef        = useRef(null);
+  const timerRef          = useRef(null);
+  const validatedCache    = useRef(new Set()); // cache từ đã check để tránh gọi API lại
   const timeoutFiredRef = useRef(false); // tránh gọi handleWordTimeout nhiều lần
 
   const wordle      = roomData?.wordle;
@@ -479,14 +481,30 @@ export default function WordleApp() {
       setError("Từ phải đủ 5 chữ cái!");
       return;
     }
-    if (!WORD_LIST.includes(currentInput.toLowerCase())) {
-      setShakeRow(true);
-      setTimeout(() => setShakeRow(false), 400);
-      setError("Từ không có trong từ điển!");
-      return;
-    }
-    setError("");
+
     const guess = currentInput.toLowerCase();
+
+    // Kiểm tra từ hợp lệ qua dictionary API (có cache để tránh gọi lại)
+    if (!validatedCache.current.has(guess)) {
+      setIsValidating(true);
+      try {
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${guess}`);
+        if (!res.ok) {
+          setIsValidating(false);
+          setShakeRow(true);
+          setTimeout(() => setShakeRow(false), 400);
+          setError("Từ không hợp lệ!");
+          return;
+        }
+        validatedCache.current.add(guess); // lưu cache
+      } catch {
+        // Nếu mất mạng thì cho phép submit luôn (không block người chơi)
+        validatedCache.current.add(guess);
+      }
+      setIsValidating(false);
+    }
+
+    setError("");
     const result = checkGuess(guess, currentAnswer);
     const isSolved = result.every(r => r === "correct");
     const rowIdx = currentGuesses.length;
@@ -817,8 +835,9 @@ export default function WordleApp() {
               {row.map(key => (
                 <button key={key}
                   className={`key${key.length > 1 ? " wide" : ""} ${keyColors[key] ?? ""}`}
+                  disabled={isValidating && key === "ENTER"}
                   onClick={() => handleKey(key)}>
-                  {key}
+                  {key === "ENTER" && isValidating ? "..." : key}
                 </button>
               ))}
             </div>
