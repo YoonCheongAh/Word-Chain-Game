@@ -1,4 +1,4 @@
-import { db } from "./firebase";
+import { db } from "../firebase";
 import { ref, set, update, get } from "firebase/database";
 
 export async function isValidWord(word) {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ref, onValue, update, onDisconnect } from "firebase/database";
-import { db } from "./firebase";
-import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "./roomService";
+import { db } from "../firebase";
+import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
 import { startGame, submitWord, loseLife, isValidWord, timeoutTurn, requestRematch } from "./gameService";
 
 /* ─── CSS ─────────────────────────────────────────────────── */
