@@ -10,14 +10,14 @@ import { db } from "../firebase";
 
 /* ─── ASSET PATHS ─────────────────────────────────────── */
 const ASSETS = {
-    board: "/src/Resources/horseraceboard.png",
+    board: "/Resources/horseraceboard.png",
     pawns: {
-        r: "/src/Resources/red.png",
-        g: "/src/Resources/green.png",
-        y: "/src/Resources/yellow.png",
-        b: "/src/Resources/blue.png",
+        r: "/Resources/red.png",
+        g: "/Resources/green.png",
+        y: "/Resources/yellow.png",
+        b: "/Resources/blue.png",
     },
-    die: "/src/Resources/die.png",
+    die: "/Resources/die.png",
 };
 
 const COLOR_HEX = { r: "#e74c3c", g: "#27ae60", y: "#f1c40f", b: "#2980b9" };
