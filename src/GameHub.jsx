@@ -1,6 +1,7 @@
 import { useState } from "react";
-import App from "./WordChain/App";           // Word Chain
-import WordleApp from "./Wordle/wordleapp"; // Wordle
+import App from "./WordChain/App";
+import WordleApp from "./Wordle/wordleapp";
+import LudoApp from "./Ludo/LudoApp";
 
 const HUB_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800;900&family=DM+Mono:wght@400;500&display=swap');
@@ -45,20 +46,22 @@ const HUB_STYLES = `
   .card-desc { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
   .card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
   .card-tag { font-family: 'DM Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 20px; background: var(--border); color: var(--muted); }
-  .card-tag.tag-live { background: rgba(29,158,117,0.15); color: #1D9E75; border: 1px solid rgba(29,158,117,0.25); }
+  .card-tag.tag-live  { background: rgba(29,158,117,0.15);  color: #1D9E75; border: 1px solid rgba(29,158,117,0.25); }
   .card-tag.tag-live2 { background: rgba(106,170,100,0.15); color: #6aaa64; border: 1px solid rgba(106,170,100,0.25); }
-  .card-tag.tag-soon { background: rgba(239,159,39,0.1); color: #EF9F27; }
-  /* Thumbnails */
+  .card-tag.tag-live3 { background: rgba(231,76,60,0.15);   color: #e74c3c; border: 1px solid rgba(231,76,60,0.25); }
+  .card-tag.tag-soon  { background: rgba(239,159,39,0.1);   color: #EF9F27; }
+  /* WordChain thumb */
   .wc-thumb { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: center; padding: 16px; position: relative; z-index: 1; }
   .wc-chip { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; padding: 4px 9px; border-radius: 20px; }
   .wc-c1 { background: #0f3d2e; color: #5DCAA5; border: 1px solid #1a5c44; }
   .wc-c2 { background: #0c2d4a; color: #85B7EB; border: 1px solid #1a4a72; }
   .wc-c3 { background: #3d1f0e; color: #EBA085; border: 1px solid #5c3018; }
   .wc-arr { color: #333; font-size: 12px; }
+  /* Wordle thumb */
   .wd-thumb { display: flex; flex-direction: column; gap: 3px; position: relative; z-index: 1; }
   .wd-row { display: flex; gap: 3px; }
   .wd-cell { width: 24px; height: 24px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; font-family: 'Syne', sans-serif; }
-  .wd-empty { background: #1a1a22; border: 1px solid #2a2a35; }
+  .wd-empty   { background: #1a1a22; border: 1px solid #2a2a35; }
   .wd-correct { background: #538d4e; color: #fff; }
   .wd-present { background: #b59f3b; color: #fff; }
   .wd-absent  { background: #3a3a4a; color: #888; }
@@ -66,10 +69,14 @@ const HUB_STYLES = `
   .back-bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: rgba(7,7,13,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; z-index: 50; }
   .back-btn { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 700; padding: 5px 12px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
   .back-btn:hover { border-color: var(--border-hover); background: var(--surface); }
-  .back-bar-sep { color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; }
+  .back-bar-sep  { color: var(--muted); font-size: 12px; font-family: 'DM Mono', monospace; }
   .back-bar-game { font-size: 13px; font-weight: 700; }
   .game-body { padding-top: 48px; }
-  @media (max-width: 600px) { .game-grid { grid-template-columns: 1fr 1fr; gap: 10px; } .hub-header { flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 0 28px; margin-bottom: 28px; } .card-thumb { height: 110px; } }
+  @media (max-width: 600px) {
+    .game-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hub-header { flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 0 28px; margin-bottom: 28px; }
+    .card-thumb { height: 110px; }
+  }
 `;
 
 const GAMES = [
@@ -86,13 +93,17 @@ const GAMES = [
     players: "2–4", status: "live", accent: "#6aaa64", thumb: "wordle",
   },
   {
-    id: "coming1",
-    title: "???",
-    desc: "Minigame tiếp theo đang được phát triển...",
-    players: "?", status: "soon", accent: "#DD7537", thumb: "soon",
+    id: "ludo",
+    title: "Cờ Cá Ngựa",
+    desc: "Đua ngựa về nhà · bắt quân đối thủ",
+    players: "2–4", status: "live", accent: "#e74c3c", thumb: "ludo",
   },
 ];
 
+const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp };
+const GAME_NAMES      = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa" };
+
+/* ── Thumbnails ── */
 function WordChainThumb() {
   return (
     <div className="wc-thumb">
@@ -126,27 +137,74 @@ function WordleThumb() {
   );
 }
 
+function LudoThumb() {
+  const colors = ["#e74c3c", "#27ae60", "#f1c40f", "#2980b9"];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"center", position:"relative", zIndex:1 }}>
+      <div style={{ display:"flex", gap:10 }}>
+        {colors.slice(0, 2).map((c, i) => (
+          <div key={i} style={{
+            width: 26, height: 32,
+            borderRadius: "50% 50% 40% 40%",
+            background: c, opacity: 0.85,
+            boxShadow: `0 3px 8px ${c}66`,
+          }} />
+        ))}
+      </div>
+      <div style={{ display:"flex", gap:10 }}>
+        {colors.slice(2).map((c, i) => (
+          <div key={i} style={{
+            width: 26, height: 32,
+            borderRadius: "50% 50% 40% 40%",
+            background: c, opacity: 0.85,
+            boxShadow: `0 3px 8px ${c}66`,
+          }} />
+        ))}
+      </div>
+      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#666", marginTop:2, letterSpacing:1 }}>
+        🎲 LUDO
+      </div>
+    </div>
+  );
+}
+
+/* ── GameCard ── */
 function GameCard({ game, onPlay }) {
   const available = game.status === "live";
+
+  const tagClass = {
+    wordchain: "tag-live",
+    wordle:    "tag-live2",
+    ludo:      "tag-live3",
+  }[game.id] ?? "tag-live";
+
   return (
-    <div className={`game-card ${available ? "available" : "coming-soon"}`}
+    <div
+      className={`game-card ${available ? "available" : "coming-soon"}`}
       style={{ "--card-accent": game.accent }}
-      onClick={() => available && onPlay(game.id)}>
-      {available && <button className="card-play-btn" tabIndex={-1}>▶ Chơi</button>}
+      onClick={() => available && onPlay(game.id)}
+    >
+      {available && (
+        <button className="card-play-btn" tabIndex={-1}>▶ Chơi</button>
+      )}
       <div className="card-thumb">
         <div className="card-thumb-bg"
           style={{ background: `radial-gradient(ellipse at center, ${game.accent}33 0%, transparent 70%)` }} />
         {game.thumb === "wordchain" && <WordChainThumb />}
-        {game.thumb === "wordle" && <WordleThumb />}
-        {game.thumb === "soon" && <div style={{ fontSize: 40, opacity: 0.25, position: "relative", zIndex: 1 }}>🎲</div>}
+        {game.thumb === "wordle"    && <WordleThumb />}
+        {game.thumb === "ludo"      && <LudoThumb />}
+        {game.thumb === "soon"      && (
+          <div style={{ fontSize:40, opacity:0.25, position:"relative", zIndex:1 }}>🎲</div>
+        )}
       </div>
       <div className="card-meta">
         <div className="card-title">{game.title}</div>
         <div className="card-desc">{game.desc}</div>
         <div className="card-tags">
           {game.status === "live"
-            ? <span className={`card-tag ${game.id === "wordle" ? "tag-live2" : "tag-live"}`}>● Live</span>
-            : <span className="card-tag tag-soon">Soon</span>}
+            ? <span className={`card-tag ${tagClass}`}>● Live</span>
+            : <span className="card-tag tag-soon">Soon</span>
+          }
           <span className="card-tag">👥 {game.players} người</span>
         </div>
       </div>
@@ -154,6 +212,7 @@ function GameCard({ game, onPlay }) {
   );
 }
 
+/* ── GameHub ── */
 export default function GameHub() {
   const [activeGame, setActiveGame] = useState(null);
 
@@ -164,9 +223,7 @@ export default function GameHub() {
     document.head.appendChild(el);
   }
 
-  const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp };
-  const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle" };
-
+  /* Active game view */
   if (activeGame && GAME_COMPONENTS[activeGame]) {
     const GameComponent = GAME_COMPONENTS[activeGame];
     return (
@@ -183,6 +240,7 @@ export default function GameHub() {
     );
   }
 
+  /* Hub */
   return (
     <div className="hub-root">
       <div className="hub-content">
@@ -195,7 +253,9 @@ export default function GameHub() {
         </header>
         <div className="hub-section-label">Games</div>
         <div className="game-grid">
-          {GAMES.map(g => <GameCard key={g.id} game={g} onPlay={setActiveGame} />)}
+          {GAMES.map(g => (
+            <GameCard key={g.id} game={g} onPlay={setActiveGame} />
+          ))}
         </div>
       </div>
     </div>
