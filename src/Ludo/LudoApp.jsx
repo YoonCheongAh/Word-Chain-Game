@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
-import { playSound, setMuted } from "./ludoSound";
+import { playSound, setMuted } from "./Ludosound";
 import {
     startLudoGame, rollDiceFirebase, movePawn, passTurnFirebase, requestLudoRematch,
     POINTS, START_POSITIONS, PATH, calcAvailableMoves, shouldPassTurn,
