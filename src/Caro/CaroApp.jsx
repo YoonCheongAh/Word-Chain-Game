@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
     createCaroRoom, joinCaroRoom, startCaroGame, makeMove,
     requestCaroRematch, setCaroPlayerOnline,
@@ -7,6 +7,8 @@ import {
 import { listenRoom } from "../roomService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
+
+const TURN_SECONDS = 45;
 
 /* ─── STYLES ─────────────────────────────────────────────────────────────── */
 const STYLES = `
@@ -23,7 +25,7 @@ const STYLES = `
   --radius:14px;--radius-sm:8px;
 }
 body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
-.caro-app{width:100%;max-width:680px;margin:0 auto;padding:20px 16px 80px;}
+.caro-app{width:100%;max-width:720px;margin:0 auto;padding:20px 16px 80px;}
 
 .c-logo{text-align:center;padding:36px 0 8px;}
 .c-logo-text{font-size:56px;font-weight:800;letter-spacing:-2px;line-height:1;}
@@ -105,17 +107,30 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .g-logo{font-size:20px;font-weight:800;letter-spacing:-1px;}
 .g-room{font-family:'Space Mono',monospace;font-size:12px;color:var(--dim);}
 
+/* ── Turn bar ── */
 .turn-bar{display:flex;align-items:center;justify-content:space-between;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
-  padding:10px 16px;margin-bottom:12px;}
-.turn-indicator{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;}
+  padding:10px 16px;margin-bottom:12px;gap:10px;}
+.turn-indicator{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;flex:1;min-width:0;}
 .turn-sym{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
-  justify-content:center;font-size:13px;font-weight:800;}
+  justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;}
 .turn-sym-x{background:var(--x-dim);color:var(--x);}
 .turn-sym-o{background:var(--o-dim);color:var(--o);}
 .turn-mine{color:var(--green);}
 .turn-others{color:var(--dim);}
-.move-count{font-family:'Space Mono',monospace;font-size:12px;color:var(--dim);}
+.move-count{font-family:'Space Mono',monospace;font-size:12px;color:var(--dim);white-space:nowrap;}
+
+/* ── Timer ring ── */
+.timer-ring{position:relative;width:44px;height:44px;flex-shrink:0;}
+.timer-ring svg{width:100%;height:100%;}
+.timer-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--dim);}
+.timer-mine .timer-num{color:var(--green);}
+.timer-danger .timer-num{color:var(--red);}
+.timer-danger-pulse{animation:timerPanic .45s ease-in-out infinite alternate;}
+@keyframes timerPanic{0%{opacity:.5}100%{opacity:1}}
+.timer-bar-bg{transition:none;}
+.timer-bar-fg{transition:stroke-dasharray .95s linear,stroke .3s;}
 
 .score-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-bottom:14px;}
 .score-player{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;}
@@ -133,17 +148,19 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .notice-lose{background:var(--red-dim);color:var(--red);border:1px solid #5a1a1a;}
 .notice-draw{background:var(--gold-dim);color:var(--gold);border:1px solid #5a4500;}
 
+/* ── Board ── */
 .board-wrap{overflow-x:auto;margin-bottom:16px;}
 .caro-board{
   display:inline-grid;
-  grid-template-columns:repeat(15,var(--csz));
-  grid-template-rows:repeat(15,var(--csz));
-  --csz:36px;gap:1px;
+  grid-template-columns:repeat(19,var(--csz));
+  grid-template-rows:repeat(19,var(--csz));
+  --csz:32px;gap:1px;
   background:var(--border);border:1px solid var(--border);
   border-radius:var(--radius-sm);overflow:hidden;user-select:none;
 }
-@media(max-width:600px){.caro-board{--csz:26px;}}
-@media(max-width:420px){.caro-board{--csz:21px;}}
+@media(max-width:680px){.caro-board{--csz:24px;}}
+@media(max-width:480px){.caro-board{--csz:19px;}}
+@media(max-width:380px){.caro-board{--csz:16px;}}
 
 .cc{
   width:var(--csz);height:var(--csz);background:var(--surface);
@@ -164,10 +181,8 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .cc.canx{animation:cplaceX .2s cubic-bezier(.2,.8,.3,1) both;}
 .cc.cano{animation:cplaceO .2s cubic-bezier(.2,.8,.3,1) both;}
 
-/* ── Winning-line highlight ── */
 .cc.cwin{
-  background:var(--gold-dim);
-  z-index:2;
+  background:var(--gold-dim);z-index:2;
   box-shadow:inset 0 0 0 2px var(--gold),0 0 16px rgba(240,192,64,.55);
   animation:cwinPulse 1s ease-in-out infinite;
 }
@@ -177,7 +192,6 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
   0%,100%{box-shadow:inset 0 0 0 2px var(--gold),0 0 10px rgba(240,192,64,.4);transform:scale(1);}
   50%{box-shadow:inset 0 0 0 2px var(--gold),0 0 22px rgba(240,192,64,.85);transform:scale(1.08);}
 }
-/* sequential pop-in of the win cells */
 @keyframes cwinPop{0%{transform:scale(.4);opacity:.3}100%{transform:scale(1);opacity:1}}
 .cc.cwin{animation:cwinPop .28s cubic-bezier(.2,.8,.3,1) both,cwinPulse 1s ease-in-out infinite .28s;}
 .cc.cwin-0{animation-delay:0s,.28s;}
@@ -188,7 +202,6 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .cc.cwin-5{animation-delay:.40s,.68s;}
 .cc.cwin-6{animation-delay:.48s,.76s;}
 
-/* Equal-size game marks (shapes, not glyphs) */
 .mark{position:relative;display:block;width:62%;height:62%;}
 .mark-x::before,.mark-x::after{content:'';position:absolute;top:50%;left:0;width:100%;height:14%;
   min-height:2px;border-radius:4px;background:var(--x);box-shadow:0 0 8px rgba(232,80,58,.45);}
@@ -226,7 +239,6 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .loading-wrap{padding-top:60px;text-align:center;color:var(--dim);
   font-family:'Space Mono',monospace;font-size:14px;}
 
-/* ── Win confetti ── */
 .caro-confetti{position:fixed;inset:0;pointer-events:none;z-index:300;overflow:hidden;}
 .caro-confetti i{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;
   opacity:.9;animation:confFall linear forwards;}
@@ -239,12 +251,10 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 const SYM = { X: "✕", O: "○" };
 const MEDALS = ["🥇", "🥈"];
 
-// Firebase xóa null trong array → dùng hàm này để kiểm tra ô trống
 function isCellEmpty(val) {
     return val === null || val === undefined || val === 0 || val === false || val === "";
 }
 
-// Tìm 5 quân liên tiếp (đường thắng) chứa nước đi cuối cùng
 const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 function findWinLine(grid, sym, last) {
     if (!sym || !last) return [];
@@ -259,7 +269,6 @@ function findWinLine(grid, sym, last) {
         while (at(r, c)) { line.unshift({ row: r, col: c }); r -= dr; c -= dc; }
         if (line.length >= 5) return line;
     }
-    // Fallback: quét toàn bàn nếu nước cuối không nằm trong đường thắng
     for (let rr = 0; rr < BOARD_SIZE; rr++) {
         for (let cc = 0; cc < BOARD_SIZE; cc++) {
             if (grid[rr][cc] !== sym) continue;
@@ -289,10 +298,13 @@ export default function CaroApp() {
     const [animCell, setAnimCell] = useState(null);
     const [showConfetti, setShowConfetti] = useState(false);
     const [showResult, setShowResult] = useState(false);
+    const [timeLeft, setTimeLeft] = useState(TURN_SECONDS);
+    const timerRef = useRef(null);
+    const timeoutFiredRef = useRef(false);
 
     /* ── CSS inject ── */
     useEffect(() => {
-        const id = "caro-v2-styles";
+        const id = "caro-v3-styles";
         if (!document.getElementById(id)) {
             const el = document.createElement("style");
             el.id = id; el.textContent = STYLES;
@@ -332,10 +344,42 @@ export default function CaroApp() {
     const players = roomData?.players;
     const isMeTurn = caro?.currentTurn === myRole;
     const mySym = caro?.symbols?.[myRole];
+    const opponentRole = caro?.symbols ? Object.keys(caro.symbols).find(r => r !== myRole) ?? "" : "";
+    const opponentSym = caro?.symbols?.[opponentRole];
 
-    /* ── Win notice + confetti + delayed result screen ──
-       Khi ván kết thúc: hiển thị đường thắng + animation ngay trên bàn cờ,
-       chờ animation chạy xong rồi mới hiện màn hình kết quả/chơi lại. */
+    /* ── Timer countdown ── */
+    useEffect(() => {
+        if (!caro || caro.roundOver || screen !== "game") {
+            clearInterval(timerRef.current);
+            setTimeLeft(TURN_SECONDS);
+            return;
+        }
+
+        // Tính thời gian còn lại dựa theo turnStartedAt từ Firebase (đồng bộ 2 client)
+        const start = caro.turnStartedAt ?? Date.now();
+        const calcRemaining = () => Math.max(0, TURN_SECONDS - Math.floor((Date.now() - start) / 1000));
+
+        setTimeLeft(calcRemaining());
+        timeoutFiredRef.current = false;
+
+        clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => {
+            const rem = calcRemaining();
+            setTimeLeft(rem);
+            if (rem <= 0) {
+                clearInterval(timerRef.current);
+                // Chỉ người đang đến lượt mới ghi timeout lên Firebase (tránh race condition)
+                if (isMeTurn && !timeoutFiredRef.current) {
+                    timeoutFiredRef.current = true;
+                    handleTimeout();
+                }
+            }
+        }, 500); // poll mỗi 500ms để mượt
+
+        return () => clearInterval(timerRef.current);
+    }, [caro?.currentTurn, caro?.roundOver, screen]);
+
+    /* ── Win notice + confetti ── */
     useEffect(() => {
         if (!caro?.roundOver) {
             setNotice(null);
@@ -344,19 +388,21 @@ export default function CaroApp() {
             return;
         }
         const timers = [];
-        // Hòa: không có đường thắng nên hiện kết quả nhanh hơn
         const isDraw = caro.winner === "draw";
-        const RESULT_DELAY = isDraw ? 700 : 1700; // chờ animation đường thắng
+        const isTimeout = !!caro.timeoutLoser;
+        const RESULT_DELAY = isDraw ? 700 : 1700;
 
         if (isDraw) {
             setNotice({ text: "Hòa! Không ai thắng.", type: "draw" });
         } else if (caro.winnerRole === myRole) {
-            setNotice({ text: `Bạn thắng! ${SYM[mySym]} nối được 5 quân!`, type: "win" });
+            const reason = isTimeout && caro.timeoutLoser !== myRole ? " (đối thủ hết giờ)" : "";
+            setNotice({ text: `Bạn thắng!${reason} ${SYM[mySym]} nối được 5 quân!`, type: "win" });
             setShowConfetti(true);
             timers.push(setTimeout(() => setShowConfetti(false), 4000));
         } else {
             const wname = players?.[caro.winnerRole]?.name ?? "Đối thủ";
-            setNotice({ text: `${wname} đã nối được 5 quân!`, type: "lose" });
+            const reason = isTimeout && caro.timeoutLoser === myRole ? " (bạn hết giờ)" : "";
+            setNotice({ text: `${wname} thắng!${reason}`, type: "lose" });
         }
         timers.push(setTimeout(() => setShowResult(true), RESULT_DELAY));
         return () => timers.forEach(clearTimeout);
@@ -371,6 +417,20 @@ export default function CaroApp() {
         setAnimCell({ idx, sym: mySym });
         setTimeout(() => setAnimCell(null), 280);
         await makeMove(roomId, myRole, row, col);
+    }
+
+    /* ── Timeout: người đang đi hết giờ → đối thủ thắng ── */
+    async function handleTimeout() {
+        if (!caro || caro.roundOver) return;
+        const winRole = opponentRole;
+        if (!winRole) return;
+        await update(ref(db, `rooms/${roomId}`), {
+            "caro/winner": caro.symbols?.[winRole] ?? "X",
+            "caro/winnerRole": winRole,
+            "caro/roundOver": true,
+            "caro/timeoutLoser": myRole,
+            [`players/${winRole}/score`]: (players?.[winRole]?.score ?? 0) + 1,
+        });
     }
 
     /* ── Actions ── */
@@ -402,9 +462,11 @@ export default function CaroApp() {
     }
 
     function handleLeave() {
+        clearInterval(timerRef.current);
         setCaroPlayerOnline(roomId, myRole, false);
         setRoomId(""); setMyRole(""); setRoomData(null);
-        setScreen("lobby"); setDissolved(false); setNotice(null); setError(""); setShowConfetti(false); setShowResult(false);
+        setScreen("lobby"); setDissolved(false); setNotice(null); setError("");
+        setShowConfetti(false); setShowResult(false); setTimeLeft(TURN_SECONDS);
     }
 
     function handleCopy() {
@@ -445,6 +507,37 @@ export default function CaroApp() {
         );
     }
 
+    /* ── Timer ring component ── */
+    function TimerRing({ timeLeft, isMine }) {
+        const danger = timeLeft <= 10;
+        const pct = (timeLeft / TURN_SECONDS) * 100;
+        // SVG circle circumference for r=15.9 → ~99.9, dùng 100 cho dễ
+        const C = 100;
+        const dash = (pct / 100) * C;
+        const stroke = danger ? "var(--red)" : isMine ? "var(--green)" : "var(--dim)";
+
+        return (
+            <div className={`timer-ring${isMine ? " timer-mine" : ""}${danger ? " timer-danger" : ""}`}>
+                <svg viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
+                    {/* background track */}
+                    <circle className="timer-bar-bg" cx="18" cy="18" r="15.9"
+                        fill="none" stroke="var(--border)" strokeWidth="3" />
+                    {/* foreground arc */}
+                    <circle className={`timer-bar-fg${danger ? " timer-danger-pulse" : ""}`}
+                        cx="18" cy="18" r="15.9"
+                        fill="none"
+                        stroke={stroke}
+                        strokeWidth="3"
+                        strokeDasharray={`${dash} ${C}`}
+                        strokeDashoffset="0"
+                        strokeLinecap="round"
+                    />
+                </svg>
+                <span className="timer-num">{timeLeft}</span>
+            </div>
+        );
+    }
+
     /* ════════════ LOBBY ════════════ */
     if (screen === "lobby") return (
         <div className="caro-app">
@@ -452,7 +545,7 @@ export default function CaroApp() {
             <div className="c-logo">
                 <div className="c-logo-text"><span className="c-logo-x">C</span>ARO</div>
             </div>
-            <p className="c-logo-sub">15×15 · thắng 5 · 2 người chơi</p>
+            <p className="c-logo-sub">19×19 · thắng 5 · 2 người chơi · ⏱ {TURN_SECONDS}s/lượt</p>
 
             <div className="c-card">
                 <div className="c-card-title">Chọn chế độ chơi</div>
@@ -506,7 +599,7 @@ export default function CaroApp() {
                 <div className="room-hint">nhấn để copy · {playerCount}/2 người</div>
 
                 <div className={`mode-badge ${roomMode === MODE_BLOCK ? "mode-badge-block" : "mode-badge-free"}`}>
-                    {roomMode === MODE_BLOCK ? "Chặn 2 Đầu" : "Tự Do"} · thắng 5 liên tiếp
+                    {roomMode === MODE_BLOCK ? "Chặn 2 Đầu" : "Tự Do"} · thắng 5 liên tiếp · ⏱ {TURN_SECONDS}s/lượt
                 </div>
 
                 <hr className="divider" />
@@ -547,8 +640,7 @@ export default function CaroApp() {
         </div>
     );
 
-    /* ════════════ GAME OVER ════════════
-       Chỉ hiện sau khi animation đường thắng chạy xong (showResult). */
+    /* ════════════ GAME OVER ════════════ */
     if (caro?.roundOver && showResult) {
         const syms = caro.symbols || {};
         const sorted = Object.entries(players || {})
@@ -571,6 +663,7 @@ export default function CaroApp() {
                         </div>
                         <div className="go-sub">
                             {roomMode === MODE_BLOCK ? "Chặn 2 Đầu" : "Tự Do"} · {caro.moveCount ?? 0} nước đi
+                            {caro.timeoutLoser ? " · hết giờ ⏱" : ""}
                         </div>
                         <div className="lb">
                             {sorted.map((p, i) => (
@@ -605,17 +698,13 @@ export default function CaroApp() {
     const turnRole = caro.currentTurn;
     const turnName = players?.[turnRole]?.name ?? turnRole;
     const turnSym = syms[turnRole];
-    const opponentRole = Object.keys(syms).find(r => r !== myRole) ?? "";
-    const opponentSym = syms[opponentRole];
     const modeLabel = roomMode === MODE_BLOCK ? "Chặn 2 Đầu" : "Tự Do";
 
-    // Build board — đảm bảo đủ 225 phần tử, lấp lỗ hổng Firebase
     const rawFlat = caro.board ?? [];
     const flat = Array(BOARD_SIZE * BOARD_SIZE).fill(0).map((_, i) => rawFlat[i] ?? 0);
     const grid = flatToGrid(flat);
     const last = caro.lastMove;
 
-    // Đường thắng (5 quân liên tiếp) để highlight + animate
     const winnerSym = caro.roundOver && caro.winner !== "draw" ? syms[caro.winnerRole] : null;
     const winLine = winnerSym ? findWinLine(grid, winnerSym, last) : [];
     const winSet = new Set(winLine.map(p => cellIdx(p.row, p.col)));
@@ -658,7 +747,7 @@ export default function CaroApp() {
                 </div>
             </div>
 
-            {/* Turn */}
+            {/* Turn bar với timer */}
             <div className="turn-bar">
                 <div className="turn-indicator">
                     <div className={`turn-sym turn-sym-${(turnSym || "x").toLowerCase()}`}>{SYM[turnSym] ?? "?"}</div>
@@ -666,12 +755,13 @@ export default function CaroApp() {
                         {isMeTurn ? "Lượt của bạn" : `${turnName} đang đi...`}
                     </span>
                 </div>
+                <TimerRing timeLeft={timeLeft} isMine={isMeTurn} />
                 <div className="move-count">{caro.moveCount ?? 0} nước</div>
             </div>
 
             {notice && <div className={`notice notice-${notice.type}`}>{notice.text}</div>}
 
-            {/* Board */}
+            {/* Board 19×19 */}
             <div className="board-wrap">
                 <div className="caro-board">
                     {grid.map((row, ri) =>

@@ -1,13 +1,13 @@
 import { db } from "../firebase";
 import { ref, set, get, update } from "firebase/database";
 
-export const BOARD_SIZE = 15;
+export const BOARD_SIZE = 19;
 export const WIN_COUNT  = 5;
 
 export const MODE_FREE  = "free";
 export const MODE_BLOCK = "block";
 
-const EMPTY = 0; // Firebase xóa null trong array → dùng 0 cho ô trống
+const EMPTY = 0;
 
 // ─── WIN DETECTION ────────────────────────────────────────────────────────────
 export function checkWin(board, row, col, player, mode) {
@@ -17,7 +17,6 @@ export function checkWin(board, row, col, player, mode) {
     if (mode === MODE_FREE) {
       if (result.count >= WIN_COUNT) return true;
     } else {
-      // MODE_BLOCK: cần đúng 5 và ít nhất 1 đầu mở
       if (result.count >= WIN_COUNT && result.openEnds >= 1) return true;
     }
   }
@@ -43,13 +42,11 @@ function countLine(board, row, col, dr, dc, player) {
   return { count, openEnds };
 }
 
-// Ô trống = 0, null, undefined (Firebase có thể trả về bất kỳ dạng nào)
 function isEmptyCell(val) {
   return !val || val === EMPTY;
 }
 
 export function emptyBoard() {
-  // Dùng 0 thay null vì Firebase tự xóa null trong array
   return Array(BOARD_SIZE * BOARD_SIZE).fill(EMPTY);
 }
 
@@ -126,6 +123,7 @@ export async function startCaroGame(roomId) {
     "caro/lastMove": null,
     "caro/roundOver": false,
     "caro/rematch": null,
+    "caro/turnStartedAt": Date.now(),   // ← tracking timer
   });
 }
 
@@ -140,12 +138,10 @@ export async function makeMove(roomId, playerRole, row, col) {
   const idx = cellIdx(row, col);
   const boardRaw = caro.board ?? [];
 
-  // Firebase có thể trả sparse array — coi missing/0/null đều là trống
   if (!isEmptyCell(boardRaw[idx])) return;
 
   const symbol = caro.symbols[playerRole];
 
-  // Xây lại board đủ 225 phần tử, đảm bảo không có lỗ hổng
   const newBoard = Array(BOARD_SIZE * BOARD_SIZE).fill(EMPTY);
   for (let i = 0; i < newBoard.length; i++) {
     if (!isEmptyCell(boardRaw[i])) newBoard[i] = boardRaw[i];
@@ -172,12 +168,16 @@ export async function makeMove(roomId, playerRole, row, col) {
     updates["caro/winner"] = symbol;
     updates["caro/winnerRole"] = playerRole;
     updates["caro/roundOver"] = true;
-    updates[`players/${playerRole}/score`] = (room.players[playerRole]?.score ?? 0) + 1;
   } else if (isDraw) {
     updates["caro/winner"] = "draw";
     updates["caro/roundOver"] = true;
   } else {
     updates["caro/currentTurn"] = nextRole;
+    updates["caro/turnStartedAt"] = Date.now();   // ← reset timer khi đổi lượt
+  }
+
+  if (won) {
+    updates[`players/${playerRole}/score`] = (room.players[playerRole]?.score ?? 0) + 1;
   }
 
   await update(ref(db, `rooms/${roomId}`), updates);
