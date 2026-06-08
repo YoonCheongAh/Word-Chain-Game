@@ -1,23 +1,17 @@
 import { db } from "../firebase";
-import { ref, set, get, update, onValue } from "firebase/database";
+import { ref, set, get, update } from "firebase/database";
 
-// ─── CONSTANTS ───────────────────────────────────────────────────────────────
 export const BOARD_SIZE = 15;
 export const WIN_COUNT  = 5;
 
-// Game mode types
-export const MODE_FREE  = "free";   // Caro tự do (không chặn 2 đầu)
-export const MODE_BLOCK = "block";  // Caro chặn 2 đầu (cần chính xác 5, không bị chặn cả 2 đầu)
+export const MODE_FREE  = "free";
+export const MODE_BLOCK = "block";
+
+const EMPTY = 0; // Firebase xóa null trong array → dùng 0 cho ô trống
 
 // ─── WIN DETECTION ────────────────────────────────────────────────────────────
-/**
- * Check if placing at (row, col) wins the game.
- * mode = "free"  → 5 in a row is always a win (including 6+)
- * mode = "block" → exactly-5 AND at least one open end required
- */
 export function checkWin(board, row, col, player, mode) {
   const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
-
   for (const [dr, dc] of DIRS) {
     const result = countLine(board, row, col, dr, dc, player);
     if (mode === MODE_FREE) {
@@ -34,28 +28,29 @@ function countLine(board, row, col, dr, dc, player) {
   let count = 1;
   let openEnds = 0;
 
-  // Forward direction
   let r = row + dr, c = col + dc;
   while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
     count++; r += dr; c += dc;
   }
-  if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === null) openEnds++;
+  if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && isEmptyCell(board[r][c])) openEnds++;
 
-  // Backward direction
   r = row - dr; c = col - dc;
   while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
     count++; r -= dr; c -= dc;
   }
-  if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === null) openEnds++;
+  if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && isEmptyCell(board[r][c])) openEnds++;
 
   return { count, openEnds };
 }
 
-/**
- * Build empty board (15x15 of nulls, stored as flat array for Firebase compat)
- */
+// Ô trống = 0, null, undefined (Firebase có thể trả về bất kỳ dạng nào)
+function isEmptyCell(val) {
+  return !val || val === EMPTY;
+}
+
 export function emptyBoard() {
-  return Array(BOARD_SIZE * BOARD_SIZE).fill(null);
+  // Dùng 0 thay null vì Firebase tự xóa null trong array
+  return Array(BOARD_SIZE * BOARD_SIZE).fill(EMPTY);
 }
 
 export function flatToGrid(flat) {
@@ -66,24 +61,48 @@ export function flatToGrid(flat) {
   return grid;
 }
 
-export function gridToFlat(grid) {
-  return grid.flat();
-}
-
 export function cellIdx(row, col) {
   return row * BOARD_SIZE + col;
 }
 
 // ─── ROOM OPERATIONS ─────────────────────────────────────────────────────────
+function genRoomId() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
 export async function createCaroRoom(hostName, mode) {
-  const { createRoom } = await import("../roomService");
-  const roomId = await createRoom(hostName);
-  // Tag this room as caro with selected mode
-  await update(ref(db, `rooms/${roomId}`), {
+  const roomId = genRoomId();
+  await set(ref(db, `rooms/${roomId}`), {
+    status: "waiting",
     gameType: "caro",
-    "caro/mode": mode,
+    players: {
+      player1: { name: hostName, score: 0, online: true },
+    },
+    caro: { mode },
+    createdAt: Date.now(),
   });
   return roomId;
+}
+
+export async function joinCaroRoom(roomId, playerName) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  if (!snap.exists()) throw new Error("Phòng không tồn tại!");
+
+  const room = snap.val();
+  if (room.status === "playing")    throw new Error("Game đang diễn ra!");
+  if (room.status === "dissolved")  throw new Error("Phòng đã đóng!");
+  if (room.gameType !== "caro")     throw new Error("Phòng này không phải caro!");
+
+  const players = room.players || {};
+  if (Object.keys(players).length >= 2) throw new Error("Phòng đã đầy (2/2)!");
+
+  await update(ref(db, `rooms/${roomId}`), {
+    "players/player2": { name: playerName, score: 0, online: true },
+    status: "ready",
+  });
+
+  return "player2";
 }
 
 export async function startCaroGame(roomId) {
@@ -93,7 +112,6 @@ export async function startCaroGame(roomId) {
   const players = room.players || {};
   const roles = Object.keys(players);
 
-  // Assign symbols: player1 = X (black), player2 = O (white), 3/4 wait
   const symbols = {};
   roles.forEach((r, i) => { symbols[r] = i % 2 === 0 ? "X" : "O"; });
 
@@ -104,7 +122,6 @@ export async function startCaroGame(roomId) {
     "caro/symbols": symbols,
     "caro/winner": null,
     "caro/winnerRole": null,
-    "caro/winLine": null,
     "caro/moveCount": 0,
     "caro/lastMove": null,
     "caro/roundOver": false,
@@ -121,10 +138,18 @@ export async function makeMove(roomId, playerRole, row, col) {
   if (caro.currentTurn !== playerRole) return;
 
   const idx = cellIdx(row, col);
-  if (caro.board[idx] !== null) return;
+  const boardRaw = caro.board ?? [];
+
+  // Firebase có thể trả sparse array — coi missing/0/null đều là trống
+  if (!isEmptyCell(boardRaw[idx])) return;
 
   const symbol = caro.symbols[playerRole];
-  const newBoard = [...caro.board];
+
+  // Xây lại board đủ 225 phần tử, đảm bảo không có lỗ hổng
+  const newBoard = Array(BOARD_SIZE * BOARD_SIZE).fill(EMPTY);
+  for (let i = 0; i < newBoard.length; i++) {
+    if (!isEmptyCell(boardRaw[i])) newBoard[i] = boardRaw[i];
+  }
   newBoard[idx] = symbol;
 
   const grid = flatToGrid(newBoard);
@@ -135,7 +160,7 @@ export async function makeMove(roomId, playerRole, row, col) {
   const currentIdx = roles.indexOf(playerRole);
   const nextRole = roles[(currentIdx + 1) % roles.length];
   const moveCount = (caro.moveCount ?? 0) + 1;
-  const isDraw = !won && moveCount >= BOARD_SIZE * BOARD_SIZE;
+  const isDraw = !won && newBoard.every(v => !isEmptyCell(v));
 
   const updates = {
     "caro/board": newBoard,
@@ -147,9 +172,7 @@ export async function makeMove(roomId, playerRole, row, col) {
     updates["caro/winner"] = symbol;
     updates["caro/winnerRole"] = playerRole;
     updates["caro/roundOver"] = true;
-    // Update score
-    const currentScore = room.players[playerRole]?.score ?? 0;
-    updates[`players/${playerRole}/score`] = currentScore + 1;
+    updates[`players/${playerRole}/score`] = (room.players[playerRole]?.score ?? 0) + 1;
   } else if (isDraw) {
     updates["caro/winner"] = "draw";
     updates["caro/roundOver"] = true;
@@ -170,4 +193,18 @@ export async function requestCaroRematch(roomId, playerRole) {
   const players = room.players || {};
   const allReady = Object.keys(players).every(r => rematch[r] === true);
   if (allReady) await startCaroGame(roomId);
+}
+
+export async function setCaroPlayerOnline(roomId, playerRole, online) {
+  if (!roomId || !playerRole) return;
+  try {
+    await update(ref(db, `rooms/${roomId}/players/${playerRole}`), { online });
+    if (!online) {
+      const snap = await get(ref(db, `rooms/${roomId}`));
+      const room = snap.val();
+      if (room && room.status !== "finished") {
+        await update(ref(db, `rooms/${roomId}`), { status: "dissolved" });
+      }
+    }
+  } catch (e) {}
 }
