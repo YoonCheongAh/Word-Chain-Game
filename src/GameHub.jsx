@@ -8,7 +8,7 @@ import CaroApp from "./Caro/CaroApp";
    STYLES
 ───────────────────────────────────────────── */
 const HUB_STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=Outfit:wght@300;400;600;700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,7 +27,7 @@ const HUB_STYLES = `
   }
 
   body {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Orbitron', sans-serif;
     background: var(--ink);
     color: var(--text);
     min-height: 100vh;
@@ -95,13 +95,13 @@ const HUB_STYLES = `
     padding: 32px 0 0;
   }
 
-  .gh-logo-wrap { display: flex; align-items: baseline; gap: 12px; }
+  .gh-logo-wrap { display: flex; align-items: center; gap: 14px; }
 
   .gh-logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 52px;
-    letter-spacing: 4px;
-    line-height: 1;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 30px;
+    letter-spacing: 1px;
+    line-height: 1.1;
     background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.45) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -113,7 +113,7 @@ const HUB_STYLES = `
     height: 9px;
     background: var(--g1);
     border-radius: 50%;
-    margin-left: 2px;
+    margin-left: 4px;
     vertical-align: middle;
     box-shadow: 0 0 12px var(--g1);
     animation: dotBlink 2.2s ease-in-out infinite;
@@ -126,14 +126,14 @@ const HUB_STYLES = `
   }
 
   .gh-beta {
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 8px;
     color: var(--g1);
     border: 1px solid rgba(0,229,160,0.3);
     background: rgba(0,229,160,0.08);
-    padding: 3px 10px;
-    border-radius: 20px;
-    letter-spacing: 1.5px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    letter-spacing: 1px;
     vertical-align: middle;
   }
 
@@ -189,9 +189,9 @@ const HUB_STYLES = `
 
   /* ── Section label ── */
   .gh-section-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'Press Start 2P', cursive;
     font-size: 9px;
-    letter-spacing: 3px;
+    letter-spacing: 1px;
     color: var(--muted);
     text-transform: uppercase;
     display: flex;
@@ -280,7 +280,7 @@ const HUB_STYLES = `
     transform: translateX(-50%) translateY(10px) scale(0.9);
     background: var(--card-accent, var(--g1));
     color: #000;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Orbitron', sans-serif;
     font-size: 12px;
     font-weight: 700;
     padding: 7px 22px;
@@ -309,11 +309,13 @@ const HUB_STYLES = `
   }
 
   .gh-card-title {
+    font-family: 'Orbitron', sans-serif;
     font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.4px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
     margin-bottom: 4px;
     line-height: 1.15;
+    text-transform: uppercase;
   }
 
   .gh-card-desc {
@@ -420,7 +422,7 @@ const HUB_STYLES = `
     justify-content: center;
     font-size: 11px;
     font-weight: 800;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Orbitron', sans-serif;
   }
 
   .wd-empty   { background: #191926; border: 1px solid #282838; }
@@ -441,9 +443,9 @@ const HUB_STYLES = `
   .ld-row { display: flex; gap: 12px; }
 
   .ld-piece {
-    width: 23px;
-    height: 30px;
-    border-radius: 50% 50% 40% 40%;
+    width: 34px; 
+    height: 40px; 
+    object-fit: contain;
     animation: pieceRock 2.8s ease-in-out infinite;
     position: relative;
   }
@@ -451,6 +453,7 @@ const HUB_STYLES = `
   .ld-piece::after {
     content: '';
     position: absolute;
+    display: none;
     bottom: -1px;
     left: 50%;
     transform: translateX(-50%);
@@ -467,11 +470,11 @@ const HUB_STYLES = `
 
   .ld-piece:nth-child(2) { animation-delay: 0.7s; }
   .ld-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 9px;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 8px;
     color: #444;
-    letter-spacing: 2px;
-    margin-top: 2px;
+    letter-spacing: 1px;
+    margin-top: 4px;
   }
 
   /* ── Footer ── */
@@ -525,7 +528,7 @@ const HUB_STYLES = `
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Orbitron', sans-serif;
     font-size: 12px;
     font-weight: 700;
     padding: 5px 13px;
@@ -540,7 +543,7 @@ const HUB_STYLES = `
   }
 
   .gh-back-sep  { color: var(--muted); font-size: 11px; font-family: 'Space Mono', monospace; }
-  .gh-back-name { font-size: 13px; font-weight: 700; letter-spacing: -0.2px; }
+  .gh-back-name { font-family: 'Orbitron', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; }
   .gh-back-dot  {
     margin-left: auto;
     width: 7px; height: 7px;
@@ -554,7 +557,7 @@ const HUB_STYLES = `
   @media (max-width: 640px) {
     .gh-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
     .gh-thumb { height: 120px; }
-    .gh-logo  { font-size: 38px; }
+    .gh-logo  { font-size: 20px; }
   }
 `;
 
@@ -608,7 +611,7 @@ const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp };
 const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa" };
 
 GAME_COMPONENTS["caro"] = CaroApp;
-GAME_NAMES["caro"]      = "Cờ Caro";
+GAME_NAMES["caro"] = "Cờ Caro";
 
 const MARQUEE_ITEMS = [
   { label: "WORD CHAIN — LIVE", color: "#00e5a0", live: true },
@@ -660,32 +663,35 @@ function WordleThumb() {
 
 function LudoThumb() {
   const pieces = [
-    { bg: "#e74c3c", shadow: "#e74c3c66" },
-    { bg: "#2ecc71", shadow: "#2ecc7166" },
-    { bg: "#f1c40f", shadow: "#f1c40f66" },
-    { bg: "#3498db", shadow: "#3498db66" },
+    { src: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/red-GIP3cNU5HlUNPZBNq4yH5rwIMJizh7.png", shadow: "#e74c3c66", alt: "Red knight" },
+    { src: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/green-6j3n5umXJmoXfKufezD22tZPxOmq2V.png", shadow: "#2ecc7166", alt: "Green knight" },
+    { src: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/yellow-X7VOeF8ftS4q2iVk0F2LhXvz5oL3vB.png", shadow: "#f1c40f66", alt: "Yellow knight" },
+    { src: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/blue-jHgLPPXTtNzk1wuQfkKmDPEaEYevT9.png", shadow: "#3498db66", alt: "Blue knight" },
   ];
   return (
     <div className="ld-thumb">
       <div className="ld-row">
         {pieces.slice(0, 2).map((p, i) => (
-          <div
+          <img
             key={i}
             className="ld-piece"
-            style={{ background: p.bg, boxShadow: `0 5px 14px ${p.shadow}` }}
+            src={p.src || "/placeholder.svg"}
+            alt={p.alt}
+            style={{ filter: `drop-shadow(0 5px 14px ${p.shadow})` }}
           />
         ))}
       </div>
       <div className="ld-row">
         {pieces.slice(2).map((p, i) => (
-          <div
+          <img
             key={i}
             className="ld-piece"
-            style={{ background: p.bg, boxShadow: `0 5px 14px ${p.shadow}` }}
+            src={p.src || "/placeholder.svg"}
+            alt={p.alt}
+            style={{ filter: `drop-shadow(0 5px 14px ${p.shadow})` }}
           />
         ))}
       </div>
-      <div className="ld-label">🎲 LUDO</div>
     </div>
   );
 }
