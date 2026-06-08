@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import App from "./WordChain/App";
 import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
+import CaroApp from "./Caro/CaroApp";
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -591,16 +592,29 @@ const GAMES = [
     tagClass: "gh-tag-red",
     thumb: "ludo",
   },
+  {
+    id: "caro",
+    num: "04 / BOARD",
+    title: "Cờ Caro",
+    desc: "Caro 15×15 · thắng 5\nTự do hoặc chặn 2 đầu",
+    players: "2",
+    accent: "#e8503a",
+    tagClass: "gh-tag-red",
+    thumb: "caro",
+  }
 ];
 
 const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp };
-const GAME_NAMES      = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa" };
+const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa" };
+
+GAME_COMPONENTS["caro"] = CaroApp;
+GAME_NAMES["caro"]      = "Cờ Caro";
 
 const MARQUEE_ITEMS = [
-  { label: "WORD CHAIN — LIVE",   color: "#00e5a0", live: true  },
-  { label: "WORDLE — LIVE",       color: "#64d96a", live: true  },
-  { label: "CỜ CÁ NGỰA — LIVE",  color: "#ff5a5a", live: true  },
-  { label: "MORE GAMES — SOON",   color: "#444",    live: false },
+  { label: "WORD CHAIN — LIVE", color: "#00e5a0", live: true },
+  { label: "WORDLE — LIVE", color: "#64d96a", live: true },
+  { label: "CỜ CÁ NGỰA — LIVE", color: "#ff5a5a", live: true },
+  { label: "MORE GAMES — SOON", color: "#444", live: false },
 ];
 
 /* ─────────────────────────────────────────────
@@ -620,9 +634,9 @@ function WordChainThumb() {
 
 function WordleThumb() {
   const rows = [
-    [{ l:"B",s:"absent" },{ l:"R",s:"absent" },{ l:"A",s:"present" },{ l:"V",s:"absent" },{ l:"E",s:"absent" }],
-    [{ l:"P",s:"absent" },{ l:"L",s:"absent" },{ l:"A",s:"correct" },{ l:"N",s:"absent" },{ l:"T",s:"present" }],
-    [{ l:"S",s:"absent" },{ l:"T",s:"correct" },{ l:"A",s:"correct" },{ l:"T",s:"correct" },{ l:"E",s:"correct" }],
+    [{ l: "B", s: "absent" }, { l: "R", s: "absent" }, { l: "A", s: "present" }, { l: "V", s: "absent" }, { l: "E", s: "absent" }],
+    [{ l: "P", s: "absent" }, { l: "L", s: "absent" }, { l: "A", s: "correct" }, { l: "N", s: "absent" }, { l: "T", s: "present" }],
+    [{ l: "S", s: "absent" }, { l: "T", s: "correct" }, { l: "A", s: "correct" }, { l: "T", s: "correct" }, { l: "E", s: "correct" }],
     null,
     null,
   ];
@@ -632,11 +646,11 @@ function WordleThumb() {
         <div className="wd-row" key={ri}>
           {row
             ? row.map((c, ci) => (
-                <div key={ci} className={`wd-cell wd-${c.s}`}>{c.l}</div>
-              ))
+              <div key={ci} className={`wd-cell wd-${c.s}`}>{c.l}</div>
+            ))
             : Array(5).fill(null).map((_, ci) => (
-                <div key={ci} className="wd-cell wd-empty" />
-              ))
+              <div key={ci} className="wd-cell wd-empty" />
+            ))
           }
         </div>
       ))}
@@ -676,6 +690,37 @@ function LudoThumb() {
   );
 }
 
+function CaroThumb() {
+  // Mini 5x5 board preview with X and O pieces
+  const preview = [
+    [null, null, null, null, null],
+    [null, "X", "O", null, null],
+    [null, "O", "X", "X", null],
+    [null, null, "X", "O", null],
+    [null, null, null, "O", null],
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, position: "relative", zIndex: 1 }}>
+      {preview.map((row, ri) => (
+        <div key={ri} style={{ display: "flex", gap: 3 }}>
+          {row.map((cell, ci) => (
+            <div key={ci} style={{
+              width: 24, height: 24, borderRadius: 4,
+              background: cell ? (cell === "X" ? "#3d1a16" : "#0f2a4d") : "#1c1c28",
+              border: `1px solid ${cell ? (cell === "X" ? "#8c2a1c" : "#1e5080") : "#2a2a3a"}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 800, fontFamily: "monospace",
+              color: cell === "X" ? "#e8503a" : cell === "O" ? "#4a9eff" : "transparent",
+            }}>
+              {cell === "X" ? "✕" : cell === "O" ? "○" : ""}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    GAME CARD
 ───────────────────────────────────────────── */
@@ -702,8 +747,8 @@ function GameCard({ game, onPlay }) {
         <div className="gh-card-overlay" />
 
         {game.thumb === "wordchain" && <WordChainThumb />}
-        {game.thumb === "wordle"    && <WordleThumb />}
-        {game.thumb === "ludo"      && <LudoThumb />}
+        {game.thumb === "wordle" && <WordleThumb />}
+        {game.thumb === "ludo" && <LudoThumb />}
 
         <div className="gh-play-pill">▶ Chơi ngay</div>
       </div>
@@ -846,8 +891,8 @@ export default function GameHub() {
             <div className="gh-fdot" style={{ background: "#00e5a0", opacity: 1 }} />
             <div className="gh-fdot" style={{ background: "#64d96a", opacity: 1 }} />
             <div className="gh-fdot" style={{ background: "#ff5a5a", opacity: 1 }} />
-            <div className="gh-fdot" style={{ background: "#555",    opacity: 0.3 }} />
-            <div className="gh-fdot" style={{ background: "#555",    opacity: 0.3 }} />
+            <div className="gh-fdot" style={{ background: "#555", opacity: 0.3 }} />
+            <div className="gh-fdot" style={{ background: "#555", opacity: 0.3 }} />
           </div>
         </footer>
       </div>
