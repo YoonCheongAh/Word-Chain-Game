@@ -19,8 +19,8 @@ const HUB_STYLES = `
     --border: rgba(255,255,255,0.06);
     --border-hover: rgba(255,255,255,0.12);
     --text: #f2f0ec;
-    --muted: #55556a;
-    --dim: #888899;
+    --muted: #7a7a92;
+    --dim: #a0a0b4;
     --g1: #00e5a0;
     --g2: #64d96a;
     --g3: #ff5a5a;
@@ -139,8 +139,8 @@ const HUB_STYLES = `
 
   .gh-header-tagline {
     font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    color: var(--muted);
+    font-size: 12px;
+    color: var(--dim);
     letter-spacing: 0.5px;
     padding-bottom: 6px;
   }
@@ -169,8 +169,8 @@ const HUB_STYLES = `
 
   .gh-marquee-item {
     font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    color: var(--muted);
+    font-size: 11px;
+    color: var(--dim);
     letter-spacing: 2px;
     padding: 0 36px;
     display: inline-flex;
@@ -190,9 +190,9 @@ const HUB_STYLES = `
   /* ── Section label ── */
   .gh-section-label {
     font-family: 'Press Start 2P', cursive;
-    font-size: 9px;
+    font-size: 10px;
     letter-spacing: 1px;
-    color: var(--muted);
+    color: var(--dim);
     text-transform: uppercase;
     display: flex;
     align-items: center;
@@ -301,8 +301,8 @@ const HUB_STYLES = `
 
   .gh-card-num {
     font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    color: var(--muted);
+    font-size: 10px;
+    color: var(--dim);
     letter-spacing: 2.5px;
     margin-bottom: 5px;
     text-transform: uppercase;
@@ -320,9 +320,9 @@ const HUB_STYLES = `
 
   .gh-card-desc {
     font-family: 'Space Mono', monospace;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--dim);
-    line-height: 1.65;
+    line-height: 1.7;
     margin-bottom: 14px;
   }
 
@@ -334,7 +334,7 @@ const HUB_STYLES = `
 
   .gh-tag {
     font-family: 'Space Mono', monospace;
-    font-size: 9px;
+    font-size: 10px;
     padding: 3px 10px;
     border-radius: 20px;
     letter-spacing: 0.5px;
@@ -362,8 +362,8 @@ const HUB_STYLES = `
 
   .gh-players {
     font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    color: var(--muted);
+    font-size: 11px;
+    color: var(--dim);
   }
 
   /* ── WordChain thumb ── */
@@ -450,31 +450,43 @@ const HUB_STYLES = `
     position: relative;
   }
 
-  .ld-piece::after {
-    content: '';
-    position: absolute;
-    display: none;
-    bottom: -1px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 4px;
-    background: rgba(0,0,0,0.35);
-    border-radius: 50%;
-  }
-
   @keyframes pieceRock {
     0%, 100% { transform: rotate(-4deg); }
     50%       { transform: rotate(4deg) translateY(-3px); }
   }
 
   .ld-piece:nth-child(2) { animation-delay: 0.7s; }
-  .ld-label {
-    font-family: 'Press Start 2P', cursive;
-    font-size: 8px;
-    color: #444;
-    letter-spacing: 1px;
-    margin-top: 4px;
+
+  /* ── Caro thumb (matches in-game X/O marks) ── */
+  .caro-thumb {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    position: relative;
+    z-index: 1;
+  }
+  .caro-thumb-row { display: flex; gap: 3px; }
+  .caro-thumb-cell {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  /* shape-based marks, same as the real game board */
+  .caro-thumb-mark { position: relative; display: block; width: 56%; height: 56%; }
+  .caro-thumb-x::before, .caro-thumb-x::after {
+    content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: 18%;
+    min-height: 2px; border-radius: 3px; background: #e8503a;
+    box-shadow: 0 0 5px rgba(232,80,58,.5);
+  }
+  .caro-thumb-x::before { transform: translateY(-50%) rotate(45deg); }
+  .caro-thumb-x::after  { transform: translateY(-50%) rotate(-45deg); }
+  .caro-thumb-o {
+    border: 2.5px solid #4a9eff; border-radius: 50%;
+    box-shadow: 0 0 5px rgba(74,158,255,.45), inset 0 0 3px rgba(74,158,255,.3);
   }
 
   /* ── Footer ── */
@@ -490,7 +502,7 @@ const HUB_STYLES = `
 
   .gh-footer-copy {
     font-family: 'Space Mono', monospace;
-    font-size: 9px;
+    font-size: 10px;
     color: var(--muted);
     letter-spacing: 1px;
   }
@@ -569,7 +581,7 @@ const GAMES = [
     id: "wordchain",
     num: "01 / WORD",
     title: "Word Chain",
-    desc: "Nối từ tiếng Anh\nAi hết máu thua",
+    desc: "Nối từ tiếng Anh · ai hết máu thua",
     players: "2–4",
     accent: "#00e5a0",
     tagClass: "gh-tag-teal",
@@ -579,7 +591,7 @@ const GAMES = [
     id: "wordle",
     num: "02 / WORD",
     title: "Wordle",
-    desc: "Đoán từ 5 chữ\n6 lần thử · ghi điểm",
+    desc: "Đoán từ 5 chữ · 6 lần thử",
     players: "2–4",
     accent: "#64d96a",
     tagClass: "gh-tag-lime",
@@ -589,7 +601,7 @@ const GAMES = [
     id: "ludo",
     num: "03 / BOARD",
     title: "Cờ Cá Ngựa",
-    desc: "Đua ngựa về nhà\nBắt quân đối thủ",
+    desc: "Đua ngựa về nhà · bắt quân đối thủ",
     players: "2–4",
     accent: "#ff5a5a",
     tagClass: "gh-tag-red",
@@ -599,7 +611,7 @@ const GAMES = [
     id: "caro",
     num: "04 / BOARD",
     title: "Cờ Caro",
-    desc: "Caro 15×15 · thắng 5\nTự do hoặc chặn 2 đầu",
+    desc: "Caro 15×15 · thắng 5 quân liên tiếp",
     players: "2",
     accent: "#e8503a",
     tagClass: "gh-tag-red",
@@ -607,20 +619,17 @@ const GAMES = [
   }
 ];
 
-const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp };
-const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa" };
-
-GAME_COMPONENTS["caro"] = CaroApp;
-GAME_NAMES["caro"] = "Cờ Caro";
+const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp };
+const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro" };
 
 const MARQUEE_ITEMS = [
   { label: "WORD CHAIN — LIVE", color: "#00e5a0", live: true },
   { label: "WORDLE — LIVE", color: "#64d96a", live: true },
   { label: "CỜ CÁ NGỰA — LIVE", color: "#ff5a5a", live: true },
-  { label: "MORE GAMES — SOON", color: "#444", live: false },
+  { label: "CỜ CARO — LIVE", color: "#e8503a", live: true },
 ];
 
-/* ─────────────────────────────────────────────
+/* ──────────────────────────────────��──────────
    THUMBNAILS
 ───────────────────────────────────────────── */
 function WordChainThumb() {
@@ -697,30 +706,50 @@ function LudoThumb() {
 }
 
 function CaroThumb() {
-  // Mini 5x5 board preview with X and O pieces
+  // Mini 5x5 board preview — diagonal "X wins" line, matching the real board look
   const preview = [
-    [null, null, null, null, null],
-    [null, "X", "O", null, null],
+    ["O", null, "O", null, "X"],
     [null, "O", "X", "X", null],
-    [null, null, "X", "O", null],
-    [null, null, null, "O", null],
+    ["O", "X", "X", "O", "O"],
+    ["X", "X", "O", "X", null],
+    ["X", "O", null, "O", "X"],
   ];
+  // highlight X's winning diagonal (top-right → bottom-left)
+  const winCells = new Set(["0-4", "1-3", "2-2", "3-1", "4-0"]);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3, position: "relative", zIndex: 1 }}>
+    <div className="caro-thumb">
       {preview.map((row, ri) => (
-        <div key={ri} style={{ display: "flex", gap: 3 }}>
-          {row.map((cell, ci) => (
-            <div key={ci} style={{
-              width: 24, height: 24, borderRadius: 4,
-              background: cell ? (cell === "X" ? "#3d1a16" : "#0f2a4d") : "#1c1c28",
-              border: `1px solid ${cell ? (cell === "X" ? "#8c2a1c" : "#1e5080") : "#2a2a3a"}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, fontWeight: 800, fontFamily: "monospace",
-              color: cell === "X" ? "#e8503a" : cell === "O" ? "#4a9eff" : "transparent",
-            }}>
-              {cell === "X" ? "✕" : cell === "O" ? "○" : ""}
-            </div>
-          ))}
+        <div key={ri} className="caro-thumb-row">
+          {row.map((cell, ci) => {
+            const isWin = winCells.has(`${ri}-${ci}`);
+            return (
+              <div
+                key={ci}
+                className="caro-thumb-cell"
+                style={{
+                  background: isWin
+                    ? "#3d2e00"
+                    : cell
+                    ? cell === "X" ? "#3d1a16" : "#0f2a4d"
+                    : "#1c1c28",
+                  border: `1px solid ${
+                    isWin
+                      ? "#f0c040"
+                      : cell
+                      ? cell === "X" ? "#8c2a1c" : "#1e5080"
+                      : "#2a2a3a"
+                  }`,
+                  boxShadow: isWin ? "0 0 6px rgba(240,192,64,.5)" : "none",
+                }}
+              >
+                {cell === "X" ? (
+                  <span className="caro-thumb-mark caro-thumb-x" />
+                ) : cell === "O" ? (
+                  <span className="caro-thumb-mark caro-thumb-o" />
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -755,6 +784,7 @@ function GameCard({ game, onPlay }) {
         {game.thumb === "wordchain" && <WordChainThumb />}
         {game.thumb === "wordle" && <WordleThumb />}
         {game.thumb === "ludo" && <LudoThumb />}
+        {game.thumb === "caro" && <CaroThumb />}
 
         <div className="gh-play-pill">▶ Chơi ngay</div>
       </div>
@@ -763,11 +793,7 @@ function GameCard({ game, onPlay }) {
       <div className="gh-card-body">
         <div className="gh-card-num">{game.num}</div>
         <div className="gh-card-title">{game.title}</div>
-        <div className="gh-card-desc">
-          {game.desc.split("\n").map((line, i) => (
-            <span key={i}>{line}{i === 0 && <br />}</span>
-          ))}
-        </div>
+        <div className="gh-card-desc">{game.desc}</div>
         <div className="gh-card-footer">
           <span className={`gh-tag ${game.tagClass}`}>
             <span
@@ -776,7 +802,7 @@ function GameCard({ game, onPlay }) {
             />
             Live
           </span>
-          <span className="gh-players">👥 {game.players} người</span>
+          <span className="gh-players">{game.players} người</span>
         </div>
       </div>
     </div>
@@ -869,7 +895,7 @@ export default function GameHub() {
             <span className="gh-beta">BETA</span>
           </div>
           <div className="gh-header-tagline">
-            // chọn game · mời bạn bè · chơi thôi
+            Chọn game · mời bạn bè · chơi thôi
           </div>
         </header>
       </div>
@@ -891,14 +917,13 @@ export default function GameHub() {
         {/* Footer */}
         <footer className="gh-footer">
           <div className="gh-footer-copy">
-            © 2025 MINIGAMES · ALL RIGHTS RESERVED
+            © 2025 MINIGAMES
           </div>
           <div className="gh-footer-dots">
             <div className="gh-fdot" style={{ background: "#00e5a0", opacity: 1 }} />
             <div className="gh-fdot" style={{ background: "#64d96a", opacity: 1 }} />
             <div className="gh-fdot" style={{ background: "#ff5a5a", opacity: 1 }} />
-            <div className="gh-fdot" style={{ background: "#555", opacity: 0.3 }} />
-            <div className="gh-fdot" style={{ background: "#555", opacity: 0.3 }} />
+            <div className="gh-fdot" style={{ background: "#e8503a", opacity: 1 }} />
           </div>
         </footer>
       </div>
