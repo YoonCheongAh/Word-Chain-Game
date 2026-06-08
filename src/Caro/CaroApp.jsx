@@ -3,7 +3,7 @@ import {
     createCaroRoom, joinCaroRoom, startCaroGame, makeMove,
     requestCaroRematch, setCaroPlayerOnline,
     flatToGrid, cellIdx, BOARD_SIZE, MODE_FREE, MODE_BLOCK,
-} from "./caroService";
+} from "./CaroService";
 import { listenRoom } from "../roomService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
