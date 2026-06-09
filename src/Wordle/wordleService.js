@@ -89,10 +89,10 @@ function pickWords(count = 5) {
 }
 
 export function checkGuess(guess, answer) {
-  const result = Array(5).fill("absent");
+  const result   = Array(5).fill("absent");
   const answerArr = answer.split("");
-  const guessArr = guess.split("");
-  const used = Array(5).fill(false);
+  const guessArr  = guess.split("");
+  const used      = Array(5).fill(false);
   for (let i = 0; i < 5; i++) {
     if (guessArr[i] === answerArr[i]) { result[i] = "correct"; used[i] = true; }
   }
@@ -105,14 +105,16 @@ export function checkGuess(guess, answer) {
   return result;
 }
 
-// WORD_TIME: time per word in ms (3 minutes)
-export const WORD_TIME_MS = 180000;
+export const WORD_TIME_MS       = 180000;
 export const MAX_SCORE_PER_WORD = 1000;
-export const MAX_GUESSES = 5; // 5 lần đoán
+export const MAX_GUESSES        = 5;
+
+// ── CHANGED: supports up to 6 players ─────────────────────
+const MAX_PLAYERS = 6;
 
 export async function startWordleGame(roomId) {
   const words = pickWords(5);
-  const snap = await get(ref(db, `rooms/${roomId}/players`));
+  const snap    = await get(ref(db, `rooms/${roomId}/players`));
   const players = snap.val();
 
   const playerData = {};
@@ -137,29 +139,23 @@ export async function startWordleGame(roomId) {
   });
 }
 
-/**
- * Submit a guess for the current word.
- * If player solves/exhausts attempts → mark wordDone.
- * If ALL players wordDone → advance to next word (or end round).
- */
 export async function submitGuess(roomId, playerRole, guess) {
-  const snap = await get(ref(db, `rooms/${roomId}`));
-  const room = snap.val();
+  const snap  = await get(ref(db, `rooms/${roomId}`));
+  const room  = snap.val();
   const wordle = room.wordle;
-  const pd = wordle.playerData[playerRole];
+  const pd     = wordle.playerData[playerRole];
 
   if (pd.wordDone || pd.done) return;
 
   const wordIdx = wordle.currentWordIdx ?? 0;
-  const answer = wordle.words[wordIdx];
-  const result = checkGuess(guess.toLowerCase(), answer);
+  const answer  = wordle.words[wordIdx];
+  const result  = checkGuess(guess.toLowerCase(), answer);
   const isSolved = result.every(r => r === "correct");
 
   const newGuesses = [...(pd.guesses || []), { word: guess.toLowerCase(), result }];
-  const exhausted = newGuesses.length >= MAX_GUESSES;
-  const wordDone = isSolved || exhausted;
+  const exhausted  = newGuesses.length >= MAX_GUESSES;
+  const wordDone   = isSolved || exhausted;
 
-  // Score: time-based, only on solve
   let wordScore = 0;
   if (isSolved) {
     const elapsed = Date.now() - wordle.wordStartedAt;
@@ -167,18 +163,17 @@ export async function submitGuess(roomId, playerRole, guess) {
   }
 
   const updates = {};
-  updates[`wordle/playerData/${playerRole}/guesses`] = newGuesses;
+  updates[`wordle/playerData/${playerRole}/guesses`]  = newGuesses;
   updates[`wordle/playerData/${playerRole}/wordDone`] = wordDone;
   if (wordDone) {
-    updates[`wordle/playerData/${playerRole}/score`] = (pd.score || 0) + wordScore;
+    updates[`wordle/playerData/${playerRole}/score`]          = (pd.score || 0) + wordScore;
     updates[`wordle/playerData/${playerRole}/wordsCompleted`] = (pd.wordsCompleted || 0) + 1;
   }
 
   await update(ref(db, `rooms/${roomId}`), updates);
 
-  // Check if ALL players finished current word
-  const snap2 = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
-  const allPD = snap2.val();
+  const snap2  = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
+  const allPD  = snap2.val();
   const allWordDone = Object.values(allPD).every(p => p.wordDone);
 
   if (allWordDone) {
@@ -186,29 +181,23 @@ export async function submitGuess(roomId, playerRole, guess) {
   }
 }
 
-/**
- * Xử lý hết giờ: mark tất cả player chưa xong là wordDone (0 điểm), rồi chuyển từ mới.
- * Chỉ được gọi bởi player1 (host) để tránh race condition.
- */
 export async function handleWordTimeout(roomId) {
-  const snap = await get(ref(db, `rooms/${roomId}`));
-  const room = snap.val();
+  const snap  = await get(ref(db, `rooms/${roomId}`));
+  const room  = snap.val();
   const wordle = room?.wordle;
   if (!wordle || wordle.roundOver) return;
 
-  // Kiểm tra thực sự hết giờ (tránh trigger nhầm khi reconnect)
   const elapsed = Date.now() - wordle.wordStartedAt;
-  if (elapsed < WORD_TIME_MS - 2000) return; // buffer 2s
+  if (elapsed < WORD_TIME_MS - 2000) return;
 
   const wordIdx = wordle.currentWordIdx ?? 0;
-  const allPD = wordle.playerData;
+  const allPD   = wordle.playerData;
 
-  // Mark wordDone=true cho tất cả người chưa xong (không cộng điểm)
   const updates = {};
   Object.entries(allPD).forEach(([role, pd]) => {
     if (!pd.wordDone) {
-      updates[`wordle/playerData/${role}/wordDone`] = true;
-      updates[`wordle/playerData/${role}/wordsCompleted`] = (pd.wordsCompleted || 0) + 1;
+      updates[`wordle/playerData/${role}/wordDone`]        = true;
+      updates[`wordle/playerData/${role}/wordsCompleted`]  = (pd.wordsCompleted || 0) + 1;
     }
   });
 
@@ -218,17 +207,13 @@ export async function handleWordTimeout(roomId) {
 
   await new Promise(resolve => setTimeout(resolve, WORD_REVEAL_DELAY_MS));
 
-  // Lấy lại playerData mới nhất rồi advance
-  const snap2 = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
+  const snap2    = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
   const updatedPD = snap2.val();
   await advanceWord(roomId, wordIdx, wordle.words, updatedPD, 0);
 }
 
-/**
- * Chuyển sang từ tiếp theo hoặc kết thúc game.
- */
 async function advanceWord(roomId, wordIdx, words, allPD, delayMs = WORD_REVEAL_DELAY_MS) {
-  const nextIdx = wordIdx + 1;
+  const nextIdx     = wordIdx + 1;
   const hasMoreWords = nextIdx < words.length;
 
   if (hasMoreWords) {
@@ -237,7 +222,7 @@ async function advanceWord(roomId, wordIdx, words, allPD, delayMs = WORD_REVEAL_
       "wordle/wordStartedAt": Date.now(),
     };
     Object.keys(allPD).forEach(role => {
-      resetUpdates[`wordle/playerData/${role}/guesses`] = [];
+      resetUpdates[`wordle/playerData/${role}/guesses`]  = [];
       resetUpdates[`wordle/playerData/${role}/wordDone`] = false;
     });
     await update(ref(db, `rooms/${roomId}`), resetUpdates);
@@ -252,10 +237,10 @@ async function advanceWord(roomId, wordIdx, words, allPD, delayMs = WORD_REVEAL_
 
 export async function requestWordleRematch(roomId, playerRole) {
   await set(ref(db, `rooms/${roomId}/wordle/rematch/${playerRole}`), true);
-  const snap = await get(ref(db, `rooms/${roomId}`));
-  const room = snap.val();
-  const rematch = room.wordle?.rematch || {};
-  const players = room.players || {};
+  const snap   = await get(ref(db, `rooms/${roomId}`));
+  const room   = snap.val();
+  const rematch  = room.wordle?.rematch || {};
+  const players  = room.players || {};
   const allReady = Object.keys(players).every(r => rematch[r] === true);
   if (allReady) await startWordleGame(roomId);
 }

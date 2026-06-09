@@ -101,6 +101,9 @@ const STYLES = `
   .av-p2   { background: var(--c-blue-dim);   color: var(--c-blue); }
   .av-p3   { background: #2d1a3d;             color: var(--c-purple); }
   .av-p4   { background: var(--c-yellow-dim); color: var(--c-yellow); }
+  /* ── NEW: player 5 & 6 ── */
+  .av-p5   { background: #1a2d3d;             color: #56d4f5; }
+  .av-p6   { background: #2d1a2d;             color: #e879f9; }
   .av-empty { background: var(--c-surface2); color: var(--c-muted); }
 
   .p-name { font-size: 14px; font-weight: 600; flex: 1; }
@@ -309,16 +312,22 @@ const STYLES = `
   .loading-wrap { padding-top: 60px; text-align: center; color: var(--c-muted); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
 `;
 
-const PLAYER_SLOTS = ["player1", "player2", "player3", "player4"];
+// ── CHANGED: 4 → 6 slots ──────────────────────────────────
+const PLAYER_SLOTS = ["player1","player2","player3","player4","player5","player6"];
+
 const KEYBOARD_ROWS = [
   ["Q","W","E","R","T","Y","U","I","O","P"],
   ["A","S","D","F","G","H","J","K","L"],
   ["ENTER","Z","X","C","V","B","N","M","⌫"],
 ];
-const MEDALS = ["🥇","🥈","🥉","4️⃣"];
-const AV_CLASSES = ["av-host","av-p2","av-p3","av-p4"];
 
-const ANIM_FLIP = "flip";
+// ── CHANGED: added 5th & 6th place medals ─────────────────
+const MEDALS = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣"];
+
+// ── CHANGED: added av-p5, av-p6 ───────────────────────────
+const AV_CLASSES = ["av-host","av-p2","av-p3","av-p4","av-p5","av-p6"];
+
+const ANIM_FLIP   = "flip";
 const ANIM_BOUNCE = "bounce";
 
 export default function WordleApp() {
@@ -338,21 +347,20 @@ export default function WordleApp() {
   const [shakeRow, setShakeRow]       = useState(false);
   const [isValidating, setIsValidating] = useState(false);
 
-  const timerRef          = useRef(null);
-  const validatedCache    = useRef(new Set()); // cache từ đã check để tránh gọi API lại
-  const timeoutFiredRef = useRef(false); // tránh gọi handleWordTimeout nhiều lần
+  const timerRef       = useRef(null);
+  const validatedCache = useRef(new Set());
+  const timeoutFiredRef = useRef(false);
 
   const wordle      = roomData?.wordle;
   const players     = roomData?.players;
   const playerCount = Object.keys(players || {}).length;
   const myData      = wordle?.playerData?.[myRole];
   const wordIdx     = wordle?.currentWordIdx ?? 0;
-  const currentGuesses = myData?.guesses ?? [];
-  const myScore     = myData?.score ?? 0;
-  const myWordDone  = myData?.wordDone ?? false;
-  const currentAnswer = wordle?.words?.[wordIdx] ?? "";
+  const currentGuesses  = myData?.guesses ?? [];
+  const myScore         = myData?.score ?? 0;
+  const myWordDone      = myData?.wordDone ?? false;
+  const currentAnswer   = wordle?.words?.[wordIdx] ?? "";
 
-  // Keyboard color state từ lượt đoán của từ hiện tại
   const keyColors = {};
   currentGuesses.forEach(g => {
     g.result.forEach((r, i) => {
@@ -403,20 +411,20 @@ export default function WordleApp() {
     if ((s === "waiting" || s === "ready") && screen === "lobby" && roomId) setScreen("room");
   }, [roomData?.status]);
 
-  /* ── Reset khi đổi từ mới ── */
+  /* ── Reset on new word ── */
   const prevWordIdx = useRef(0);
   useEffect(() => {
     if (!wordle) return;
     if (wordIdx !== prevWordIdx.current) {
       prevWordIdx.current = wordIdx;
-      timeoutFiredRef.current = false; // reset flag khi từ mới
+      timeoutFiredRef.current = false;
       setCurrentInput("");
       setNotice({ text: `Từ ${wordIdx + 1}/5 bắt đầu!`, type: "info" });
       setAnimatingRow(null);
     }
   }, [wordIdx]);
 
-  /* ── Timer + xử lý hết giờ ── */
+  /* ── Timer ── */
   useEffect(() => {
     if (screen !== "game" || !wordle?.wordStartedAt) return;
     clearInterval(timerRef.current);
@@ -430,14 +438,8 @@ export default function WordleApp() {
       if (left === 0 && !timeoutFiredRef.current) {
         timeoutFiredRef.current = true;
         clearInterval(timerRef.current);
-
-        // Hiện thông báo hết giờ cho tất cả
         setNotice({ text: `⏰ Hết giờ! Đáp án: "${currentAnswer.toUpperCase()}"`, type: "timeout" });
-
-        // Chỉ host gọi handleWordTimeout để tránh race condition
-        if (myRole === "player1") {
-          handleWordTimeout(roomId);
-        }
+        if (myRole === "player1") handleWordTimeout(roomId);
       }
     }, 250);
 
@@ -484,7 +486,6 @@ export default function WordleApp() {
 
     const guess = currentInput.toLowerCase();
 
-    // Kiểm tra từ hợp lệ qua dictionary API (có cache để tránh gọi lại)
     if (!validatedCache.current.has(guess)) {
       setIsValidating(true);
       try {
@@ -496,9 +497,8 @@ export default function WordleApp() {
           setError("Từ không hợp lệ!");
           return;
         }
-        validatedCache.current.add(guess); // lưu cache
+        validatedCache.current.add(guess);
       } catch {
-        // Nếu mất mạng thì cho phép submit luôn (không block người chơi)
         validatedCache.current.add(guess);
       }
       setIsValidating(false);
@@ -594,7 +594,7 @@ export default function WordleApp() {
     return rows;
   }
 
-  /* ── Sidebar Others (fixed left) ── */
+  /* ── Sidebar Others ── */
   function OthersPanel() {
     const others = PLAYER_SLOTS.filter(r => r !== myRole && players?.[r]);
     if (!others.length) return null;
@@ -602,8 +602,8 @@ export default function WordleApp() {
       <div className="sidebar-others">
         {others.map(role => {
           const pd = wordle?.playerData?.[role];
-          const guesses = pd?.guesses ?? [];
-          const score = pd?.score ?? 0;
+          const guesses  = pd?.guesses ?? [];
+          const score    = pd?.score ?? 0;
           const wordDone = pd?.wordDone;
           return (
             <div className="sidebar-player" key={role}>
@@ -650,7 +650,8 @@ export default function WordleApp() {
       {dissolved && <DissolvedOverlay />}
       <div className="lobby-wrap">
         <div className="logo"><div className="logo-text">Wor<em>dle</em></div></div>
-        <p className="logo-sub">// đoán từ 5 chữ · 2–4 người · realtime</p>
+        {/* CHANGED: 4 → 6 */}
+        <p className="logo-sub">// đoán từ 5 chữ · 2–6 người · realtime</p>
         <div className="card">
           <div className="card-title">Tạo phòng mới</div>
           <input className="inp" placeholder="Tên của bạn" value={name}
@@ -681,10 +682,11 @@ export default function WordleApp() {
         <div className="room-code-wrap">
           <div className="room-code" onClick={handleCopy}>{roomId}</div>
         </div>
-        <div className="room-hint">nhấn để copy · {playerCount}/4 người</div>
+        {/* CHANGED: /4 → /6 */}
+        <div className="room-hint">nhấn để copy · {playerCount}/6 người</div>
         <hr className="divider" />
         {PLAYER_SLOTS.map((slot, idx) => {
-          const p = players?.[slot];
+          const p    = players?.[slot];
           const isMe = slot === myRole;
           return (
             <div className="player-row" key={slot}>
@@ -704,7 +706,8 @@ export default function WordleApp() {
         <hr className="divider" />
         {myRole === "player1"
           ? <button className="btn btn-primary" onClick={handleStart} disabled={playerCount < 2}>
-              {playerCount < 2 ? `Chờ người... (${playerCount}/4)` : `▶ Bắt đầu — ${playerCount} người`}
+              {/* CHANGED: /4 → /6 */}
+              {playerCount < 2 ? `Chờ người... (${playerCount}/6)` : `▶ Bắt đầu — ${playerCount} người`}
             </button>
           : <p style={{ textAlign:"center", color:"var(--c-muted)", fontSize:13, fontFamily:"'JetBrains Mono',monospace" }}>Chờ host bắt đầu...</p>
         }
@@ -720,7 +723,7 @@ export default function WordleApp() {
     const sorted = Object.entries(pd)
       .map(([role, d]) => ({ role, name: players?.[role]?.name ?? role, score: d.score ?? 0 }))
       .sort((a, b) => b.score - a.score);
-    const myRematch = wordle.rematch?.[myRole];
+    const myRematch    = wordle.rematch?.[myRole];
     const rematchCount = Object.keys(wordle.rematch || {}).length;
 
     return (
@@ -734,6 +737,7 @@ export default function WordleApp() {
             <div className="lb">
               {sorted.map((p, i) => (
                 <div key={p.role} className={`lb-row${p.role === myRole ? " me" : ""}`}>
+                  {/* MEDALS now covers up to index 5 */}
                   <span className="lb-rank">{MEDALS[i] ?? "—"}</span>
                   <span className="lb-name">
                     {p.name}
@@ -763,7 +767,7 @@ export default function WordleApp() {
 
   /* GAME */
   const rows = buildRows();
-  const timerPct = (timeLeft / (WORD_TIME_MS / 1000)) * 100;
+  const timerPct   = (timeLeft / (WORD_TIME_MS / 1000)) * 100;
   const timerColor = timerPct > 50 ? "#3fb950" : timerPct > 20 ? "#d29922" : "#f85149";
 
   const waitingForOthers = myWordDone && !wordle.roundOver &&
@@ -773,7 +777,6 @@ export default function WordleApp() {
     <div className="app">
       {dissolved && <DissolvedOverlay />}
 
-      {/* Sidebar tiến độ người khác (fixed trái) */}
       <OthersPanel />
 
       {/* Header */}
@@ -789,7 +792,6 @@ export default function WordleApp() {
         ))}
       </div>
 
-      {/* Score + timer */}
       <div className="score-row">
         <div className="my-score">Score <span>{myScore}đ</span></div>
         <div className="word-label">từ {wordIdx + 1}/5</div>
@@ -802,17 +804,14 @@ export default function WordleApp() {
         <div className="timer-bar" style={{ width: `${timerPct}%`, background: timerColor }} />
       </div>
 
-      {/* Notice */}
       {notice && (
         <div className={`notice-bar notice-${notice.type}`}>{notice.text}</div>
       )}
 
-      {/* Wait message */}
       {waitingForOthers && (
         <div className="notice-bar notice-info pulse">⏳ Chờ người khác hoàn thành...</div>
       )}
 
-      {/* Grid */}
       <div className="grid-wrap">
         <div className="grid">
           {rows.map((row, ri) => (
@@ -827,7 +826,6 @@ export default function WordleApp() {
 
       {error && <p className="err" style={{ marginBottom: 10 }}>{error}</p>}
 
-      {/* Keyboard */}
       {!myWordDone && (
         <div className="kb">
           {KEYBOARD_ROWS.map((row, ri) => (

@@ -32,9 +32,9 @@ export async function joinRoom(roomId, playerName) {
   if (room.status === "dissolved") throw new Error("Phòng đã đóng!");
 
   const players = room.players || {};
-  const slots = ["player1", "player2", "player3", "player4"];
+  const slots = ["player1", "player2", "player3", "player4","player5","player6"];
   const taken = Object.keys(players);
-  if (taken.length >= 4) throw new Error("Phòng đã đầy (4/4)!");
+  if (taken.length >= 6) throw new Error("Phòng đã đầy (6/6)!");
 
   const nextSlot = slots.find(s => !taken.includes(s));
 
