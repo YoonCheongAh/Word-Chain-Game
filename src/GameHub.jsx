@@ -3,6 +3,7 @@ import App from "./WordChain/App";
 import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
 import CaroApp from "./Caro/CaroApp";
+import noneLogo from "/none.png";
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -516,6 +517,18 @@ const HUB_STYLES = `
     transition: opacity 0.3s;
   }
 
+  .gh-logo {
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+
+  .gh-logo-image {
+    width: 40px;
+    height: 40px;
+    object-fit:contain;
+  }
+  
   /* ── Back bar (in-game) ── */
   .gh-back-bar {
     position: fixed;
@@ -730,15 +743,14 @@ function CaroThumb() {
                   background: isWin
                     ? "#3d2e00"
                     : cell
-                    ? cell === "X" ? "#3d1a16" : "#0f2a4d"
-                    : "#1c1c28",
-                  border: `1px solid ${
-                    isWin
-                      ? "#f0c040"
-                      : cell
+                      ? cell === "X" ? "#3d1a16" : "#0f2a4d"
+                      : "#1c1c28",
+                  border: `1px solid ${isWin
+                    ? "#f0c040"
+                    : cell
                       ? cell === "X" ? "#8c2a1c" : "#1e5080"
                       : "#2a2a3a"
-                  }`,
+                    }`,
                   boxShadow: isWin ? "0 0 6px rgba(240,192,64,.5)" : "none",
                 }}
               >
@@ -888,8 +900,13 @@ export default function GameHub() {
         {/* Header */}
         <header className="gh-header">
           <div className="gh-logo-wrap">
+            <img
+              src="/none.png"
+              alt="MINIGAMES Logo"
+              className="gh-logo-image"
+            />
             <div className="gh-logo">
-              MINIGAMES
+              PIXEL ARENA
               <span className="gh-logo-dot" />
             </div>
             <span className="gh-beta">BETA</span>
