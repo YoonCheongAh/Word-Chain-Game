@@ -288,7 +288,7 @@ const STYLES = `
   }
 `;
 
-const TIMER_MAX = 30;
+const TIMER_MAX = 15;
 const PLAYER_COLORS = {
   player1: { dot: "dot-p1", chipClass: "chip-p1", activeClass: "p1-active" },
   player2: { dot: "dot-p2", chipClass: "chip-p2", activeClass: "p2-active" },
