@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
     createCaroRoom, joinCaroRoom, startCaroGame, makeMove,
-    requestCaroRematch, setCaroPlayerOnline,
+    requestCaroRematch, setCaroPlayerOnline, requestUndo, respondUndo,
     flatToGrid, cellIdx, BOARD_SIZE, MODE_FREE, MODE_BLOCK,
 } from "./CaroService";
 import { listenRoom } from "../roomService";
@@ -147,6 +147,30 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .notice-win{background:var(--green-dim);color:var(--green);border:1px solid #1e5c30;}
 .notice-lose{background:var(--red-dim);color:var(--red);border:1px solid #5a1a1a;}
 .notice-draw{background:var(--gold-dim);color:var(--gold);border:1px solid #5a4500;}
+
+/* ── Undo bar ── */
+.undo-bar{display:flex;align-items:center;justify-content:space-between;
+  background:var(--gold-dim);border:1px solid var(--gold);border-radius:var(--radius-sm);
+  padding:10px 14px;margin-bottom:12px;gap:10px;
+  animation:undoPop .2s cubic-bezier(.2,.8,.3,1) both;}
+@keyframes undoPop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.undo-bar-text{font-family:'Space Mono',monospace;font-size:12px;color:var(--gold);flex:1;}
+.undo-btns{display:flex;gap:8px;flex-shrink:0;}
+.undo-btn{padding:6px 16px;border-radius:6px;border:none;cursor:pointer;
+  font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;transition:opacity .15s;}
+.undo-btn:active{transform:scale(.96);}
+.undo-btn-yes{background:var(--green);color:#fff;}
+.undo-btn-yes:hover{opacity:.85;}
+.undo-btn-no{background:transparent;color:var(--red);border:1px solid var(--red-dim);}
+.undo-btn-no:hover{background:var(--red-dim);}
+
+.undo-waiting{text-align:center;font-family:'Space Mono',monospace;font-size:12px;
+  color:var(--gold);padding:8px 14px;border-radius:var(--radius-sm);
+  background:var(--gold-dim);border:1px solid rgba(240,192,64,.3);margin-bottom:12px;}
+
+.c-btn-undo{background:transparent;color:var(--dim);border:1px solid var(--border);
+  font-size:12px;padding:9px 16px;margin-bottom:10px;}
+.c-btn-undo:hover:not(:disabled){background:var(--surface);color:var(--text);border-color:var(--gold);}
 
 /* ── Board ── */
 .board-wrap{overflow-x:auto;margin-bottom:16px;}
@@ -347,6 +371,14 @@ export default function CaroApp() {
     const opponentRole = caro?.symbols ? Object.keys(caro.symbols).find(r => r !== myRole) ?? "" : "";
     const opponentSym = caro?.symbols?.[opponentRole];
 
+    // Undo state
+    const undoRequest = caro?.undoRequest ?? null;
+    const iAmRequesting = undoRequest === myRole;
+    const opponentRequesting = undoRequest && undoRequest !== myRole;
+    // Chỉ cho phép xin đi lại khi: không phải lượt mình, chưa có request nào, đã có ít nhất 1 nước đi của mình
+    const myMoves = (caro?.moveHistory ?? []).filter(m => m.role === myRole);
+    const canRequestUndo = !isMeTurn && !undoRequest && !caro?.roundOver && myMoves.length > 0;
+
     /* ── Timer countdown ── */
     useEffect(() => {
         if (!caro || caro.roundOver || screen !== "game") {
@@ -355,7 +387,6 @@ export default function CaroApp() {
             return;
         }
 
-        // Tính thời gian còn lại dựa theo turnStartedAt từ Firebase (đồng bộ 2 client)
         const start = caro.turnStartedAt ?? Date.now();
         const calcRemaining = () => Math.max(0, TURN_SECONDS - Math.floor((Date.now() - start) / 1000));
 
@@ -368,13 +399,12 @@ export default function CaroApp() {
             setTimeLeft(rem);
             if (rem <= 0) {
                 clearInterval(timerRef.current);
-                // Chỉ người đang đến lượt mới ghi timeout lên Firebase (tránh race condition)
                 if (isMeTurn && !timeoutFiredRef.current) {
                     timeoutFiredRef.current = true;
                     handleTimeout();
                 }
             }
-        }, 500); // poll mỗi 500ms để mượt
+        }, 500);
 
         return () => clearInterval(timerRef.current);
     }, [caro?.currentTurn, caro?.roundOver, screen]);
@@ -419,7 +449,7 @@ export default function CaroApp() {
         await makeMove(roomId, myRole, row, col);
     }
 
-    /* ── Timeout: người đang đi hết giờ → đối thủ thắng ── */
+    /* ── Timeout ── */
     async function handleTimeout() {
         if (!caro || caro.roundOver) return;
         const winRole = opponentRole;
@@ -433,7 +463,17 @@ export default function CaroApp() {
         });
     }
 
-    /* ── Actions ── */
+    /* ── Undo handlers ── */
+    async function handleRequestUndo() {
+        if (!canRequestUndo) return;
+        await requestUndo(roomId, myRole);
+    }
+
+    async function handleRespondUndo(accept) {
+        await respondUndo(roomId, accept);
+    }
+
+    /* ── Lobby actions ── */
     async function handleCreate() {
         if (!name.trim()) return setError("Nhập tên của bạn!");
         setError("");
@@ -475,7 +515,7 @@ export default function CaroApp() {
         setTimeout(() => setCopiedToast(false), 1800);
     }
 
-    /* ── DISSOLVED ── */
+    /* ── Sub-components ── */
     function DissolvedOverlay() {
         return (
             <div className="dissolved-overlay">
@@ -489,7 +529,6 @@ export default function CaroApp() {
         );
     }
 
-    /* ── Confetti ── */
     function Confetti() {
         const colors = ["#e8503a", "#4a9eff", "#3ecf6e", "#f0c040", "#ff5a5a"];
         const pieces = Array.from({ length: 70 });
@@ -507,11 +546,9 @@ export default function CaroApp() {
         );
     }
 
-    /* ── Timer ring component ── */
     function TimerRing({ timeLeft, isMine }) {
         const danger = timeLeft <= 10;
         const pct = (timeLeft / TURN_SECONDS) * 100;
-        // SVG circle circumference for r=15.9 → ~99.9, dùng 100 cho dễ
         const C = 100;
         const dash = (pct / 100) * C;
         const stroke = danger ? "var(--red)" : isMine ? "var(--green)" : "var(--dim)";
@@ -519,10 +556,8 @@ export default function CaroApp() {
         return (
             <div className={`timer-ring${isMine ? " timer-mine" : ""}${danger ? " timer-danger" : ""}`}>
                 <svg viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
-                    {/* background track */}
                     <circle className="timer-bar-bg" cx="18" cy="18" r="15.9"
                         fill="none" stroke="var(--border)" strokeWidth="3" />
-                    {/* foreground arc */}
                     <circle className={`timer-bar-fg${danger ? " timer-danger-pulse" : ""}`}
                         cx="18" cy="18" r="15.9"
                         fill="none"
@@ -747,7 +782,7 @@ export default function CaroApp() {
                 </div>
             </div>
 
-            {/* Turn bar với timer */}
+            {/* Turn bar */}
             <div className="turn-bar">
                 <div className="turn-indicator">
                     <div className={`turn-sym turn-sym-${(turnSym || "x").toLowerCase()}`}>{SYM[turnSym] ?? "?"}</div>
@@ -759,7 +794,33 @@ export default function CaroApp() {
                 <div className="move-count">{caro.moveCount ?? 0} nước</div>
             </div>
 
+            {/* Game notices */}
             {notice && <div className={`notice notice-${notice.type}`}>{notice.text}</div>}
+
+            {/* Đối thủ xin đi lại → mình phán xét */}
+            {opponentRequesting && (
+                <div className="undo-bar">
+                    <span className="undo-bar-text">
+                        ↩ {players?.[undoRequest]?.name} xin đi lại nước vừa rồi
+                    </span>
+                    <div className="undo-btns">
+                        <button className="undo-btn undo-btn-yes" onClick={() => handleRespondUndo(true)}>Đồng ý</button>
+                        <button className="undo-btn undo-btn-no"  onClick={() => handleRespondUndo(false)}>Từ chối</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Mình đang chờ đối thủ phản hồi */}
+            {iAmRequesting && (
+                <div className="undo-waiting pulse">↩ Đang chờ đối thủ chấp nhận đi lại...</div>
+            )}
+
+            {/* Nút xin đi lại */}
+            {canRequestUndo && (
+                <button className="c-btn c-btn-undo" onClick={handleRequestUndo}>
+                    ↩ Xin đi lại
+                </button>
+            )}
 
             {/* Board 19×19 */}
             <div className="board-wrap">

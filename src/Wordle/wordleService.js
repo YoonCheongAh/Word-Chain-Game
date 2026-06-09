@@ -81,6 +81,8 @@ export const WORD_LIST = [
   "zesty","zonal"
 ];
 
+export const WORD_REVEAL_DELAY_MS = 4000;
+
 function pickWords(count = 5) {
   const shuffled = [...WORD_LIST].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
@@ -214,16 +216,18 @@ export async function handleWordTimeout(roomId) {
     await update(ref(db, `rooms/${roomId}`), updates);
   }
 
+  await new Promise(resolve => setTimeout(resolve, WORD_REVEAL_DELAY_MS));
+
   // Lấy lại playerData mới nhất rồi advance
   const snap2 = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
   const updatedPD = snap2.val();
-  await advanceWord(roomId, wordIdx, wordle.words, updatedPD);
+  await advanceWord(roomId, wordIdx, wordle.words, updatedPD, 0);
 }
 
 /**
  * Chuyển sang từ tiếp theo hoặc kết thúc game.
  */
-async function advanceWord(roomId, wordIdx, words, allPD) {
+async function advanceWord(roomId, wordIdx, words, allPD, delayMs = WORD_REVEAL_DELAY_MS) {
   const nextIdx = wordIdx + 1;
   const hasMoreWords = nextIdx < words.length;
 

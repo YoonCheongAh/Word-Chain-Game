@@ -109,21 +109,32 @@ export async function startCaroGame(roomId) {
   const players = room.players || {};
   const roles = Object.keys(players);
 
+  const roundNumber = (room.caro?.roundNumber ?? 0) + 1;
+  const swap = roundNumber % 2 === 0;
+
   const symbols = {};
-  roles.forEach((r, i) => { symbols[r] = i % 2 === 0 ? "X" : "O"; });
+  roles.forEach((r, i) => {
+    let base = i % 2 === 0 ? "X" : "O";
+    symbols[r] = swap ? (base === "X" ? "O" : "X") : base;
+  });
+
+  const firstRole = roles.find(r => symbols[r] === "X") ?? roles[0];
 
   await update(ref(db, `rooms/${roomId}`), {
     status: "playing",
     "caro/board": emptyBoard(),
-    "caro/currentTurn": roles[0],
+    "caro/currentTurn": firstRole,
     "caro/symbols": symbols,
     "caro/winner": null,
     "caro/winnerRole": null,
     "caro/moveCount": 0,
     "caro/lastMove": null,
+    "caro/moveHistory": [],
     "caro/roundOver": false,
     "caro/rematch": null,
-    "caro/turnStartedAt": Date.now(),   // ← tracking timer
+    "caro/undoRequest": null,
+    "caro/roundNumber": roundNumber,
+    "caro/turnStartedAt": Date.now(),
   });
 }
 
@@ -155,13 +166,17 @@ export async function makeMove(roomId, playerRole, row, col) {
   const roles = Object.keys(room.players);
   const currentIdx = roles.indexOf(playerRole);
   const nextRole = roles[(currentIdx + 1) % roles.length];
-  const moveCount = (caro.moveCount ?? 0) + 1;
+  const moveEntry = { row, col, role: playerRole, symbol };
+  const newHistory = [...(caro.moveHistory ?? []), moveEntry];
+  const moveCount = newHistory.length;
   const isDraw = !won && newBoard.every(v => !isEmptyCell(v));
 
   const updates = {
     "caro/board": newBoard,
     "caro/lastMove": { row, col, role: playerRole },
     "caro/moveCount": moveCount,
+    "caro/moveHistory": newHistory,
+    "caro/undoRequest": null, // xóa request cũ nếu có khi đi nước mới
   };
 
   if (won) {
@@ -173,7 +188,7 @@ export async function makeMove(roomId, playerRole, row, col) {
     updates["caro/roundOver"] = true;
   } else {
     updates["caro/currentTurn"] = nextRole;
-    updates["caro/turnStartedAt"] = Date.now();   // ← reset timer khi đổi lượt
+    updates["caro/turnStartedAt"] = Date.now();
   }
 
   if (won) {
@@ -182,6 +197,63 @@ export async function makeMove(roomId, playerRole, row, col) {
 
   await update(ref(db, `rooms/${roomId}`), updates);
 }
+
+// ─── UNDO ─────────────────────────────────────────────────────────────────────
+
+// Người đang chờ (không phải lượt mình) gửi yêu cầu đi lại
+export async function requestUndo(roomId, playerRole) {
+  await update(ref(db, `rooms/${roomId}`), {
+    "caro/undoRequest": playerRole,
+  });
+}
+
+// Đối thủ phản hồi: accept=true thì xóa nước cuối của requester, trả lượt về
+export async function respondUndo(roomId, accept) {
+  if (!accept) {
+    await update(ref(db, `rooms/${roomId}`), { "caro/undoRequest": null });
+    return;
+  }
+
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const caro = room.caro;
+  if (!caro || !caro.undoRequest) return;
+
+  const requester = caro.undoRequest;
+  const history = caro.moveHistory ?? [];
+
+  // Tìm nước cuối cùng của requester và xóa đi
+  let removedIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === requester) { removedIdx = i; break; }
+  }
+  if (removedIdx === -1) {
+    await update(ref(db, `rooms/${roomId}`), { "caro/undoRequest": null });
+    return;
+  }
+
+  const newHistory = history.filter((_, i) => i !== removedIdx);
+
+  // Rebuild board từ history mới
+  const newBoard = emptyBoard();
+  newHistory.forEach(({ row, col, symbol }) => {
+    newBoard[cellIdx(row, col)] = symbol;
+  });
+
+  const lastEntry = newHistory.length > 0 ? newHistory[newHistory.length - 1] : null;
+
+  await update(ref(db, `rooms/${roomId}`), {
+    "caro/board": newBoard,
+    "caro/moveHistory": newHistory,
+    "caro/moveCount": newHistory.length,
+    "caro/lastMove": lastEntry ? { row: lastEntry.row, col: lastEntry.col, role: lastEntry.role } : null,
+    "caro/currentTurn": requester,
+    "caro/turnStartedAt": Date.now(),
+    "caro/undoRequest": null,
+  });
+}
+
+// ─── REMATCH / PRESENCE ──────────────────────────────────────────────────────
 
 export async function requestCaroRematch(roomId, playerRole) {
   await update(ref(db, `rooms/${roomId}`), {
