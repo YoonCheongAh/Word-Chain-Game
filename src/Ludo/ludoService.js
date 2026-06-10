@@ -99,51 +99,59 @@ export function calcAvailableMoves(pawns, dice, color, cachePath) {
     for (const pawn of pawns) {
         if (pawn.complete) continue;
 
-        // ── Inactive pawn: can only enter board on 6 or 1 ──
+        // ----- INACTIVE pawn (still in the yard) -----
         if (!pawn.active) {
-            if (!canEnter) continue;
+            if (!canEnter) continue;                     // need 6 or 1 to enter
             const entryPos = pathArr[0];
             const blocker = cachePath?.[entryPos];
             if (!blocker || blocker === null) {
+                // empty entry square → can enter
                 moves.push({ pawnId: pawn.id, startIndex: 0, distance: 0, captureId: null });
-            } else if (blocker.color !== color) {
-                // Can capture enemy pawn on entry square
+            } else if (blocker.color !== color && !SAFE_SQUARES.has(entryPos)) {
+                // enemy on entry and it's NOT a safe square → can capture
                 moves.push({ pawnId: pawn.id, startIndex: 0, distance: 0, captureId: blocker.id });
             }
-            // Same color blocker on entry → cannot enter
+            // own pawn on entry OR enemy on a safe entry → blocked
             continue;
         }
 
-        // ── Active pawn: move forward by diceSum ──
+        // ----- ACTIVE pawn (already on the track) -----
         const curIdx = pathArr.indexOf(pawn.position);
-        if (curIdx === -1) continue; // position not found (shouldn't happen)
+        if (curIdx === -1) continue;                     // should never happen
         const newIdx = curIdx + diceSum;
-        if (newIdx >= pathArr.length) continue; // overshot — cannot move
+        if (newIdx >= pathArr.length) continue;          // overshoot → illegal
 
-        // Check for blockers along the path
         let blocked = false;
         let captureId = null;
 
+        // sweep every square we would pass over (including the landing square)
         for (let i = curIdx + 1; i <= newIdx; i++) {
             const sq = pathArr[i];
             const occ = cachePath?.[sq];
-            if (!occ || occ === null) continue;
+
+            if (!occ || occ === null) continue;          // empty → fine
 
             if (occ.color === color) {
-                // Own pawn blocks — cannot pass
+                // own pawn blocks the path
                 blocked = true;
                 break;
             }
             if (i < newIdx) {
-                // Enemy in the middle — cannot jump over
+                // enemy in the middle → cannot jump over
                 blocked = true;
                 break;
             }
-            // Enemy on landing square — capture!
+            // i === newIdx → enemy exactly on the landing square
+            if (SAFE_SQUARES.has(sq)) {
+                // landing on a safe square with an enemy → treat as blocked
+                blocked = true;
+                break;
+            }
+            // enemy on a normal square → we can capture it
             captureId = occ.id;
         }
 
-        if (blocked) continue;
+        if (blocked) continue;                           // move not possible
         moves.push({ pawnId: pawn.id, startIndex: curIdx + 1, distance: diceSum, captureId });
     }
 
