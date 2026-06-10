@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from '../roomService';
+import { SoundManager } from './ExplodingKittenSound';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
@@ -71,6 +72,10 @@ export default function ExplodingKitten() {
     return () => clearTimeout(nopeTimerRef.current);
   }, [nopeWindow?.expiresAt, nopeWindow?.open, pending?.by, myRole, roomId]);
 
+  useEffect(() => {
+    if (myTurn) SoundManager.play('myTurn');
+  }, [game?.turn]);
+
   const showToast = useCallback((msg, duration = 2500) => {
     setToast(msg);
     setTimeout(() => setToast(''), duration);
@@ -109,9 +114,13 @@ export default function ExplodingKitten() {
   };
 
   const handleStartGame = () => startGame(roomId);
-  const handleDrawCard = () => drawCard(roomId, myRole);
+  const handleDrawCard = () => {
+    SoundManager.play('draw');
+    drawCard(roomId, myRole);
+  };
 
   const handleCardClick = (card) => {
+    SoundManager.play(SoundManager.soundForCard(card.type));
     // Anyone can play Nope during nope window
     if (card.type === CARD_TYPES.NOPE) {
       if (!nopeWindow?.open) {
@@ -405,6 +414,9 @@ function GameBoardScreen({
     return () => clearTimeout(drawTimerRef.current);
   }, [drawPile.length]);
 
+  useEffect(() => {
+    if (gameOver) SoundManager.play(gameOver === myRole ? 'win' : 'lose');
+  }, [gameOver]);
 
   useEffect(() => {
     if (!topDiscard) return;
@@ -569,6 +581,12 @@ function GameBoardScreen({
             <div className="ek-my-name">{players[myRole]?.name || 'You'}</div>
             <div className="ek-my-cardcount">{myHand.length} cards</div>
             {myTurn && <div className="ek-my-turn-dot" />}
+            <button
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, marginLeft: 'auto', color: 'var(--ek-text-muted)' }}
+              onClick={() => SoundManager.isMuted() ? SoundManager.unmute() : SoundManager.mute()}
+            >
+              {SoundManager.isMuted() ? '🔇' : '🔊'}
+            </button>
           </div>
 
           <div className="ek-hand-fan">
