@@ -623,7 +623,7 @@ function GameBoardScreen({
           <DefusePanel drawPile={drawPile} onPlaceBomb={onPlaceBomb} />
         </div>
       )}
-      {phase === 'see_future' && (
+      {phase === 'see_future' && game?.seeTheFuture?.forPlayer === myRole && (
         <div className="ek-overlay-panel">
           <SeeFuturePanel cards={game?.seeTheFuture?.cards || []} onClose={onCloseFuture} />
         </div>
@@ -936,7 +936,7 @@ function DefusePanel({ drawPile, onPlaceBomb }) {
 /* ─── SEE THE FUTURE PANEL ───────────────────────────────────────────── */
 function SeeFuturePanel({ cards, onClose }) {
   return (
-    <div className="ek-panel-inner">
+    <div className="ek-panel-inner ek-panel-wide">
       <div className="ek-panel-icon">🔮</div>
       <h3 className="ek-panel-title">Next {cards.length} cards</h3>
       <div className="ek-future-row">
@@ -980,10 +980,10 @@ function getStyles() {
       --ek-surface2: #222222;
       --ek-text: #F0EDE8;
       --ek-text-muted: #888880;
-      --ek-card-w: 108px;
-      --ek-card-h: 152px;
-      --ek-pile-w: 90px;
-      --ek-pile-h: 126px;
+      --ek-card-w: 132px;
+      --ek-card-h: 186px;
+      --ek-pile-w: 116px;
+      --ek-pile-h: 162px;
     }
 
     .ek-root {
@@ -1177,16 +1177,17 @@ function getStyles() {
     /* ── Phase Overlays ── */
     .ek-overlay-panel { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
     .ek-panel-inner { background: #1e1206; border: 1px solid rgba(255,144,32,0.3); border-radius: 20px; padding: 28px; width: min(380px, 92vw); text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+    .ek-panel-wide { width: min(520px, 94vw); }
     .ek-panel-icon { font-size: 48px; margin-bottom: 12px; }
     .ek-panel-title { font-size: 16px; font-weight: 800; color: var(--ek-ember); margin-bottom: 6px; }
     .ek-panel-sub { font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 16px; }
     .ek-range { width: 100%; margin-bottom: 6px; accent-color: var(--ek-fire); }
     .ek-range-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 4px; }
-    .ek-future-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 4px; }
-    .ek-future-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-    .ek-future-num { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--ek-text-muted); }
-    .ek-future-item img { width: 70px; height: 98px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); }
-    .ek-future-name { font-size: 9px; color: var(--ek-text-muted); text-align: center; max-width: 70px; }
+    .ek-future-row { display: flex; gap: 16px; justify-content: center; margin-bottom: 4px; flex-wrap: wrap; }
+    .ek-future-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .ek-future-num { font-size: 13px; font-family: 'DM Mono', monospace; color: var(--ek-text-muted); }
+    .ek-future-item img { width: 124px; height: 174px; object-fit: cover; border-radius: 12px; border: 2px solid rgba(255,255,255,0.12); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .ek-future-name { font-size: 12px; color: var(--ek-text); text-align: center; max-width: 124px; font-weight: 700; }
 
     /* ── Target / Favor panels ── */
     .ek-target-list { display: flex; flex-direction: column; gap: 10px; }

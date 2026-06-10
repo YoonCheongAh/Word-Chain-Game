@@ -692,8 +692,13 @@ export async function placeBombAfterDefuse(roomId, playerRole, position) {
   const bomb = game.pendingAction?.bomb;
   if (!bomb) return;
 
-  const pos = Math.max(0, Math.min(position, drawPile.length));
-  drawPile.splice(pos, 0, bomb);
+  // The deck is drawn from the END of the array (drawPile.pop()), so the
+  // visual "top" of the deck is the last element. `position` comes from the UI
+  // where 0 = top of the deck. Convert it to the correct array index so that
+  // position 0 places the bomb on top (drawn next).
+  const fromTop = Math.max(0, Math.min(position, drawPile.length));
+  const insertIdx = drawPile.length - fromTop;
+  drawPile.splice(insertIdx, 0, bomb);
 
   const attackStack = game.attackStack || 0;
   const newAttackStack = Math.max(0, attackStack - 1);
@@ -764,21 +769,19 @@ export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = n
   const stolen = targetHand[stolenIdx];
   const newTargetHand = targetHand.filter((_, i) => i !== stolenIdx);
   const thiefHand = [...(players[thiefRole].hand || []), stolen];
-  const logMsg = `${players[thiefRole].name} stole a card from ${players[targetRole].name}!`;
+  const logMsg = `${players[thiefRole].name} stole a card from ${players[targetRole].name}! Still must draw.`;
 
-  const attackStack = game.attackStack || 0;
-  const newAttackStack = Math.max(0, attackStack - 1);
-  const nextPlayer =
-    newAttackStack > 0 ? thiefRole : getNextLivingPlayer(players, thiefRole);
-
+  // Playing a cat pair does NOT end the turn — only drawing does.
+  // Keep the turn on the thief (and the attack stack unchanged) so the player
+  // is still required to draw a card afterward.
   await update(ref(db, `rooms/${roomId}`), {
     [`players/${thiefRole}/hand`]: thiefHand,
     [`players/${targetRole}/hand`]: newTargetHand,
     "game/phase": "play",
     "game/pendingAction": null,
     "game/nopeWindow": null,
-    "game/turn": nextPlayer,
-    "game/attackStack": newAttackStack,
+    "game/turn": thiefRole,
+    "game/attackStack": game.attackStack || 0,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
   });
 }
