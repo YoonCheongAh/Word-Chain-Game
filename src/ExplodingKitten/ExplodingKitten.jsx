@@ -299,15 +299,15 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
 }
 
 /* ─── ROOM SCREEN ────────────────────────────────────────────────────── */
-const SLOT_COLORS = ['#FF6B35', '#5DCAA5', '#85B7EB', '#C385EB'];
-const SLOT_LABELS = ['HOST', 'P2', 'P3', 'P4'];
+const SLOT_COLORS = ['#FF6B35', '#5DCAA5', '#85B7EB', '#C385EB', '#FFD700', '#FF1493'];
+const SLOT_LABELS = ['HOST', 'P2', 'P3', 'P4', 'P5', 'P6'];
 
 function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
   const [copied, setCopied] = useState(false);
   const players = roomData?.players || {};
   const isHost = myRole === 'player1';
   const playerCount = Object.keys(players).length;
-  const slots = ['player1', 'player2', 'player3', 'player4'];
+  const slots = ['player1', 'player2', 'player3', 'player4', 'player5', 'player6'];
 
   const copyCode = () => {
     navigator.clipboard?.writeText(roomId).catch(() => { });
@@ -318,41 +318,43 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
   return (
     <div className="ek-root ek-room-root">
       <div className="ek-room-wrap">
-        <button className="ek-back-btn" onClick={onBack}>← Back</button>
-
-        <div className="ek-room-header-block">
-          <p className="ek-room-eyebrow">Room Code</p>
-          <div className="ek-room-code-display" onClick={copyCode} title="Click to copy">
-            {roomId}
-            <span className="ek-copy-hint">{copied ? '✓ Copied!' : 'click to copy'}</span>
-          </div>
-          <p className="ek-room-player-count">{playerCount} / 4 players</p>
+        <div className="ek-room-header">
+          <button className="ek-back-btn" onClick={onBack}>← Back</button>
+          <h2 className="ek-room-title">Room Lobby</h2>
+          <div style={{ width: '40px' }} />
         </div>
 
-        <div className="ek-table-preview">
-          <div className="ek-table-felt">
-            <div className="ek-table-center-logo">🐱💣</div>
+        <div className="ek-room-code-card">
+          <p className="ek-room-eyebrow">Share Code with Friends</p>
+          <div className="ek-room-code-display-large" onClick={copyCode} title="Click to copy">
+            {roomId}
+          </div>
+          <p className="ek-code-sub">{copied ? '✓ Copied to clipboard!' : 'Click to copy the room code'}</p>
+        </div>
+
+        <div className="ek-players-section">
+          <div className="ek-players-header">
+            <p className="ek-section-label">Players ({playerCount}/6)</p>
+          </div>
+          <div className="ek-players-grid">
             {slots.map((slot, i) => {
               const p = players[slot];
-              const angle = (i / 4) * 360;
-              const rad = (angle * Math.PI) / 180;
-              const r = 110;
-              const x = 50 + (r / 2) * Math.sin(rad);
-              const y = 50 - (r / 2) * Math.cos(rad) * 0.5;
               return (
                 <div
                   key={slot}
-                  className={`ek-seat ${p ? 'ek-seat-filled' : 'ek-seat-empty'} ${slot === myRole ? 'ek-seat-me' : ''}`}
-                  style={{ left: `${x}%`, top: `${y}%`, '--seat-color': SLOT_COLORS[i] }}
+                  className={`ek-player-card ${p ? 'ek-player-filled' : 'ek-player-empty'} ${slot === myRole ? 'ek-player-self' : ''}`}
+                  style={{ '--player-color': SLOT_COLORS[i] }}
                 >
-                  <div className="ek-seat-avatar">
-                    {p ? (p.name[0].toUpperCase()) : (i + 1)}
+                  <div className="ek-player-slot-indicator">
+                    <span className="ek-slot-label">{SLOT_LABELS[i]}</span>
                   </div>
-                  <div className="ek-seat-info">
-                    <div className="ek-seat-name">{p ? p.name : 'Waiting…'}</div>
-                    <div className="ek-seat-badge" style={{ color: SLOT_COLORS[i] }}>
-                      {SLOT_LABELS[i]}{slot === myRole ? ' · You' : ''}
-                    </div>
+                  <div className="ek-player-avatar">
+                    {p ? (p.name[0].toUpperCase()) : '?'}
+                  </div>
+                  <div className="ek-player-details">
+                    <div className="ek-player-name">{p ? p.name : 'Empty Slot'}</div>
+                    {p && slot === myRole && <div className="ek-player-you">You</div>}
+                    {!p && <div className="ek-player-waiting">Waiting…</div>}
                   </div>
                 </div>
               );
@@ -360,17 +362,25 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
           </div>
         </div>
 
-        {isHost ? (
-          <button
-            className={`ek-start-btn ${playerCount >= 2 ? 'ek-start-ready' : 'ek-start-wait'}`}
-            onClick={onStart}
-            disabled={playerCount < 2}
-          >
-            {playerCount < 2 ? `Waiting for players… (${playerCount}/4)` : `▶ Start Game (${playerCount} players)`}
-          </button>
-        ) : (
-          <p className="ek-host-wait">Waiting for host to start…</p>
-        )}
+        <div className="ek-room-action">
+          {isHost ? (
+            <>
+              <button
+                className={`ek-start-btn ${playerCount >= 2 ? 'ek-start-ready' : 'ek-start-wait'}`}
+                onClick={onStart}
+                disabled={playerCount < 2}
+              >
+                {playerCount < 2 ? `Waiting for players… (${playerCount}/6)` : `🚀 Start Game (${playerCount} players)`}
+              </button>
+              <p className="ek-host-info">You are the host</p>
+            </>
+          ) : (
+            <>
+              <p className="ek-host-wait">Waiting for host to start the game…</p>
+              <p className="ek-lobby-hint">Invite friends with the room code above</p>
+            </>
+          )}
+        </div>
       </div>
 
       {copied && <div className="ek-copied-toast">✓ Copied to clipboard!</div>}
@@ -794,7 +804,7 @@ function FavorChooseTargetPanel({ players, myRole, onSelect }) {
   );
 }
 
-/* ─── FAVOR GIVE PANEL ───────────────────────────────────────────────── */
+/* ─── FAVOR GIVE PANEL ──���────────────────────────────────────────────── */
 function FavorGivePanel({ myHand, requesterName, onGive }) {
   return (
     <div className="ek-panel-inner">
@@ -918,8 +928,19 @@ function OpponentSlot({ player, role, position, isActive, isDead }) {
       </div>
       <div className="ek-opp-hand">
         {[...Array(Math.min(hand.length, 7))].map((_, i) => (
-          <div key={i} className="ek-opp-card" style={{ transform: `rotate(${(i - Math.min(hand.length, 7) / 2) * 8}deg)` }}>
-            <span className="ek-opp-card-icon">🐱</span>
+          <div
+            key={i}
+            className="ek-opp-card"
+            style={{
+              transform: `rotate(${(i - Math.min(hand.length, 7) / 2) * 8}deg)`
+            }}
+          >
+            <img
+              src="/Resources/exploding kitten/backcard.png"
+              alt="Card Back"
+              className="ek-opp-card-img"
+              draggable={false}
+            />
           </div>
         ))}
       </div>
@@ -1068,32 +1089,133 @@ function getStyles() {
 
     /* ══ ROOM ══ */
     .ek-room-root { display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse 120% 60% at 50% -10%, #1a3020 0%, #0D0D0D 55%); }
-    .ek-room-wrap { position: relative; z-index: 10; width: min(560px, 94vw); display: flex; flex-direction: column; gap: 20px; }
+    .ek-room-wrap { position: relative; z-index: 10; width: min(600px, 94vw); display: flex; flex-direction: column; gap: 28px; padding: 0 20px; }
+    
+    .ek-room-header { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 8px; }
+    .ek-room-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 2px; color: var(--ek-text); margin: 0; }
+    
     .ek-back-btn { background: none; border: none; color: var(--ek-ember); font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; align-self: flex-start; padding: 0; }
     .ek-back-btn:hover { color: var(--ek-gold); }
-    .ek-room-header-block { text-align: center; }
-    .ek-room-eyebrow { font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 3px; color: var(--ek-text-muted); margin-bottom: 8px; }
-    .ek-room-code-display { font-family: 'Bebas Neue', sans-serif; font-size: 64px; letter-spacing: 12px; background: linear-gradient(120deg, var(--ek-green), var(--ek-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; display: flex; flex-direction: column; align-items: center; line-height: 1; transition: transform .15s; }
-    .ek-room-code-display:hover { transform: scale(1.03); }
-    .ek-copy-hint { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--ek-text-muted); letter-spacing: 1px; -webkit-text-fill-color: var(--ek-text-muted); }
-    .ek-room-player-count { font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-top: 6px; }
-    .ek-table-preview { position: relative; height: 280px; background: var(--ek-felt); border: 2px solid var(--ek-felt-border); border-radius: 140px; overflow: hidden; }
-    .ek-table-felt { position: absolute; inset: 0; background: radial-gradient(ellipse at center, var(--ek-felt-light) 0%, var(--ek-felt) 80%); }
-    .ek-table-center-logo { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; opacity: 0.25; }
-    .ek-seat { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 5; }
-    .ek-seat-avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; background: var(--ek-surface); border: 2px solid var(--seat-color, #888); color: var(--seat-color, #888); transition: all .2s; }
-    .ek-seat-filled .ek-seat-avatar { background: color-mix(in srgb, var(--seat-color) 15%, transparent); }
-    .ek-seat-me .ek-seat-avatar { box-shadow: 0 0 16px var(--seat-color, #888); }
-    .ek-seat-info { text-align: center; }
-    .ek-seat-name { font-size: 11px; font-weight: 700; color: var(--ek-text); white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
-    .ek-seat-badge { font-size: 9px; font-family: 'DM Mono', monospace; font-weight: 500; letter-spacing: 1px; }
-    .ek-seat-empty .ek-seat-avatar { opacity: 0.3; }
-    .ek-seat-empty .ek-seat-name { color: var(--ek-text-muted); }
-    .ek-start-btn { width: 100%; padding: 16px; border: none; border-radius: 14px; font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px; transition: all .2s; }
+    
+    .ek-room-code-card { 
+      background: rgba(30,18,8,0.8); border: 1.5px solid rgba(255,144,32,0.3); border-radius: 20px; 
+      padding: 28px 24px; backdrop-filter: blur(8px); text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .ek-room-eyebrow { font-family: 'DM Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 3px; color: var(--ek-text-muted); margin: 0 0 16px 0; }
+    .ek-room-code-display-large { 
+      font-family: 'Bebas Neue', sans-serif; font-size: 72px; letter-spacing: 8px; 
+      background: linear-gradient(120deg, var(--ek-green), var(--ek-blue)); 
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+      cursor: pointer; display: inline-block; transition: transform .2s, filter .2s;
+      line-height: 1; margin: 0;
+    }
+    .ek-room-code-display-large:hover { transform: scale(1.05); filter: brightness(1.2); }
+    .ek-code-sub { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--ek-text-muted); letter-spacing: 0.5px; margin: 12px 0 0 0; }
+    
+    .ek-players-section { width: 100%; }
+    .ek-players-header { margin-bottom: 16px; }
+    .ek-section-label { 
+      font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; 
+      color: var(--ek-gold); letter-spacing: 1px; margin: 0; text-transform: uppercase;
+    }
+    
+    .ek-players-grid { 
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+      width: 100%;
+    }
+    @media (min-width: 700px) {
+      .ek-players-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    }
+    
+    .ek-player-card {
+      background: rgba(26,16,8,0.7); border: 2px solid rgba(255,255,255,0.08);
+      border-radius: 16px; padding: 18px 14px; text-align: center;
+      transition: all .3s ease; position: relative;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+      overflow: hidden;
+    }
+    
+    .ek-player-card::before {
+      content: ''; position: absolute; inset: 0; background: rgba(var(--player-color-rgb, 255,144,32), 0);
+      pointer-events: none; transition: background .3s ease;
+    }
+    
+    .ek-player-filled {
+      background: linear-gradient(135deg, rgba(26,16,8,0.9) 0%, rgba(30,20,10,0.7) 100%);
+      border-color: rgba(255,144,32,0.35);
+    }
+    
+    .ek-player-filled:hover {
+      border-color: rgba(255,144,32,0.6);
+      box-shadow: 0 8px 24px rgba(255,90,31,0.2);
+      transform: translateY(-2px);
+    }
+    
+    .ek-player-self {
+      border: 2px solid var(--ek-fire);
+      background: linear-gradient(135deg, rgba(255,90,31,0.15) 0%, rgba(255,144,32,0.08) 100%);
+      box-shadow: 0 0 24px rgba(255,90,31,0.25), inset 0 0 16px rgba(255,90,31,0.1);
+    }
+    
+    .ek-player-empty {
+      border-color: rgba(255,255,255,0.1);
+      opacity: 0.6;
+    }
+    
+    .ek-player-empty:hover {
+      border-color: rgba(255,144,32,0.2);
+    }
+    
+    .ek-player-slot-indicator {
+      font-size: 9px; font-weight: 800; letter-spacing: 2px; 
+      text-transform: uppercase; color: var(--ek-text-muted);
+      padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 6px;
+    }
+    
+    .ek-slot-label { color: rgba(255,255,255,0.6); }
+    
+    .ek-player-avatar {
+      width: 56px; height: 56px; border-radius: 50%; 
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 800; 
+      background: linear-gradient(135deg, rgba(255,144,32,0.2), rgba(255,90,31,0.15));
+      border: 2px solid rgba(255,144,32,0.4);
+      color: var(--ek-ember);
+      z-index: 1;
+    }
+    
+    .ek-player-empty .ek-player-avatar {
+      opacity: 0.4;
+      color: rgba(255,255,255,0.3);
+      border-color: rgba(255,255,255,0.1);
+    }
+    
+    .ek-player-details { width: 100%; z-index: 1; }
+    .ek-player-name { 
+      font-size: 14px; font-weight: 700; color: var(--ek-text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    
+    .ek-player-empty .ek-player-name { color: var(--ek-text-muted); font-weight: 600; }
+    .ek-player-you { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--ek-green); font-weight: 800; letter-spacing: 1px; }
+    .ek-player-waiting { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
+    
+    .ek-room-action {
+      display: flex; flex-direction: column; gap: 12px; align-items: center; margin-top: 12px;
+    }
+    
+    .ek-host-info {
+      font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace;
+      margin: 0; letter-spacing: 1px;
+    }
+    
+    .ek-host-wait { text-align: center; font-size: 14px; color: var(--ek-text-muted); font-family: 'Nunito', sans-serif; font-weight: 600; margin: 0; }
+    .ek-lobby-hint { text-align: center; font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin: 0; }
+    .ek-start-btn { width: 100%; max-width: 320px; padding: 16px 24px; border: none; border-radius: 14px; font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px; transition: all .2s; }
     .ek-start-ready { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 8px 28px rgba(255,90,31,0.4); }
-    .ek-start-ready:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .ek-start-ready:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 12px 36px rgba(255,90,31,0.5); }
     .ek-start-wait { background: rgba(255,255,255,0.06); color: var(--ek-text-muted); cursor: not-allowed; }
-    .ek-host-wait { text-align: center; font-size: 13px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
     .ek-copied-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: linear-gradient(120deg, var(--ek-green), #2aaa70); color: #fff; padding: 10px 22px; border-radius: 24px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 20px rgba(61,214,140,0.4); z-index: 1000; }
 
     /* ══ GAME BOARD ══ */
@@ -1115,6 +1237,12 @@ function getStyles() {
     .ek-opp-pulse { position: absolute; inset: -4px; border-radius: 18px; border: 2px solid var(--ek-fire); animation: oppPulse 1.2s ease-in-out infinite; pointer-events: none; }
     @keyframes oppPulse { 0%,100% { opacity: .8; transform: scale(1); } 50% { opacity: .2; transform: scale(1.04); } }
     .ek-opp-dead-mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; }
+    .ek-opp-card-img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
 
     .ek-center-area { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 4px 0; }
     .ek-table-felt-game { width: min(480px, 90vw); background: radial-gradient(ellipse at center, #1e4530 0%, #122a1c 60%, #0c1e12 100%); border: 2px solid var(--ek-felt-border); border-radius: 24px; padding: 20px 20px 18px; box-shadow: inset 0 2px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 14px; }
