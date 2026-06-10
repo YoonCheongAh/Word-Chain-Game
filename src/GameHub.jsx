@@ -3,6 +3,7 @@ import App from "./WordChain/App";
 import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
 import CaroApp from "./Caro/CaroApp";
+import ExplodingKitten from "./ExplodingKitten/ExplodingKitten";
 import noneLogo from "/none.png";
 
 /* ─────────────────────────────────────────────
@@ -41,6 +42,8 @@ const HUB_STYLES = `
     position: relative;
     overflow: hidden;
   }
+
+  .gh-tag-orange { background: rgba(249,115,22,0.1); color: #f97316; border: 1px solid rgba(249,115,22,0.22); }
 
   /* Scanlines */
   .gh-root::before {
@@ -629,17 +632,28 @@ const GAMES = [
     accent: "#e8503a",
     tagClass: "gh-tag-red",
     thumb: "caro",
-  }
+  },
+  {
+    id: "explodingkitten",
+    num: "05 / CARD",
+    title: "Exploding Kitten",
+    desc: "Rút bài · tránh mèo nổ · dùng thẻ chiến lược",
+    players: "2–5",
+    accent: "#f97316",
+    tagClass: "gh-tag-orange",
+    thumb: "explodingkitten",
+  },
 ];
 
-const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp };
-const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro" };
+const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp, explodingkitten: ExplodingKitten };
+const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro", explodingkitten: "Exploding Kitten" };
 
 const MARQUEE_ITEMS = [
   { label: "WORD CHAIN — LIVE", color: "#00e5a0", live: true },
   { label: "WORDLE — LIVE", color: "#64d96a", live: true },
   { label: "CỜ CÁ NGỰA — LIVE", color: "#ff5a5a", live: true },
   { label: "CỜ CARO — LIVE", color: "#e8503a", live: true },
+  { label: "EXPLODING KITTEN — LIVE", color: "#f97316", live: true },
 ];
 
 /* ──────────────────────────────────��──────────
@@ -768,6 +782,26 @@ function CaroThumb() {
   );
 }
 
+function ExplodingKittenThumb() {
+  return (
+    <div style={{
+      position: "relative", zIndex: 1,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      width: "100%", height: "100%",
+    }}>
+      <img
+        src="/Resources/exploding kitten/thumbnail.jpg"
+        alt="Exploding Kitten"
+        style={{
+          width: "100%", height: "100%",
+          objectFit: "cover",
+          opacity: 0.85,
+        }}
+      />
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    GAME CARD
 ───────────────────────────────────────────── */
@@ -797,6 +831,7 @@ function GameCard({ game, onPlay }) {
         {game.thumb === "wordle" && <WordleThumb />}
         {game.thumb === "ludo" && <LudoThumb />}
         {game.thumb === "caro" && <CaroThumb />}
+        {game.thumb === "explodingkitten" && <ExplodingKittenThumb />}
 
         <div className="gh-play-pill">▶ Chơi ngay</div>
       </div>

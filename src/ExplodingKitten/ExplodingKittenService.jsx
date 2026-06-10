@@ -1,0 +1,813 @@
+import { db } from "../firebase";
+import { ref, set, update, get, runTransaction } from "firebase/database";
+
+// ─── Card definitions ───────────────────────────────────────────────────────
+
+export const CARD_TYPES = {
+  EXPLODING_KITTEN: "exploding_kitten",
+  DEFUSE: "defuse",
+  ATTACK: "attack",
+  SKIP: "skip",
+  FAVOR: "favor",
+  SHUFFLE: "shuffle",
+  SEE_THE_FUTURE: "see_the_future",
+  NOPE: "nope",
+  TACOCAT: "tacocat",
+  CATTERMELON: "cattermelon",
+  HAIRY_POTATO_CAT: "hairy_potato_cat",
+  BEARD_CAT: "beard_cat",
+  RAINBOW_CAT: "rainbow_cat",
+};
+
+export const CAT_CARD_TYPES = new Set([
+  CARD_TYPES.TACOCAT,
+  CARD_TYPES.CATTERMELON,
+  CARD_TYPES.HAIRY_POTATO_CAT,
+  CARD_TYPES.BEARD_CAT,
+  CARD_TYPES.RAINBOW_CAT,
+]);
+
+// Cards that can be Noped (cat pairs also can be noped)
+export const NOPEABLE_TYPES = new Set([
+  CARD_TYPES.ATTACK,
+  CARD_TYPES.SKIP,
+  CARD_TYPES.FAVOR,
+  CARD_TYPES.SHUFFLE,
+  CARD_TYPES.SEE_THE_FUTURE,
+  CARD_TYPES.TACOCAT,
+  CARD_TYPES.CATTERMELON,
+  CARD_TYPES.HAIRY_POTATO_CAT,
+  CARD_TYPES.BEARD_CAT,
+  CARD_TYPES.RAINBOW_CAT,
+]);
+
+export const CARD_META = {
+  [CARD_TYPES.EXPLODING_KITTEN]: {
+    label: "Exploding Kitten",
+    desc: "Nổ tung! Dùng Defuse để thoát.",
+    images: [
+      "/Resources/exploding kitten/bomb_1.png",
+      "/Resources/exploding kitten/bomb_2.png",
+      "/Resources/exploding kitten/bomb_3.png",
+    ],
+    color: "#ff4444",
+    bg: "#3d0a0a",
+  },
+  [CARD_TYPES.DEFUSE]: {
+    label: "Defuse",
+    desc: "Ngăn Exploding Kitten. Cắm lại bom vào bài.",
+    images: [
+      "/Resources/exploding kitten/defuse_1.png",
+      "/Resources/exploding kitten/defuse_2.png",
+    ],
+    color: "#00e5a0",
+    bg: "#0c2c20",
+  },
+  [CARD_TYPES.ATTACK]: {
+    label: "Attack",
+    desc: "Kết thúc lượt. Người tiếp theo chơi 2 lượt.",
+    images: [
+      "/Resources/exploding kitten/attack_1.png",
+      "/Resources/exploding kitten/attack_2.png",
+    ],
+    color: "#ff8844",
+    bg: "#3d1a00",
+  },
+  [CARD_TYPES.SKIP]: {
+    label: "Skip",
+    desc: "Kết thúc lượt mà không cần rút bài.",
+    images: ["/Resources/exploding kitten/skip_1.png"],
+    color: "#64d96a",
+    bg: "#0c2c14",
+  },
+  [CARD_TYPES.FAVOR]: {
+    label: "Favor",
+    desc: "Ép người khác cho bạn 1 lá bài.",
+    images: [
+      "/Resources/exploding kitten/favor_1.png",
+      "/Resources/exploding kitten/favor_2.png",
+    ],
+    color: "#f0c040",
+    bg: "#2c2000",
+  },
+  [CARD_TYPES.SHUFFLE]: {
+    label: "Shuffle",
+    desc: "Xáo trộn toàn bộ bài rút.",
+    images: ["/Resources/exploding kitten/shuffle_1.png"],
+    color: "#aa88ff",
+    bg: "#1a0c3d",
+  },
+  [CARD_TYPES.SEE_THE_FUTURE]: {
+    label: "See The Future",
+    desc: "Nhìn trộm 3 lá bài trên đỉnh.",
+    images: [
+      "/Resources/exploding kitten/see-the-future_1.png",
+      "/Resources/exploding kitten/see-the-future-2.png",
+    ],
+    color: "#5ab4ff",
+    bg: "#0c1e38",
+  },
+  [CARD_TYPES.NOPE]: {
+    label: "Nope",
+    desc: "Hủy bất kỳ thẻ nào (trừ Bomb/Defuse).",
+    images: [
+      "/Resources/exploding kitten/nope_1.png",
+      "/Resources/exploding kitten/nope_2.png",
+    ],
+    color: "#ff5a5a",
+    bg: "#3d0c0c",
+  },
+  [CARD_TYPES.TACOCAT]: {
+    label: "Tacocat",
+    desc: "Mèo taco. Ghép đôi để ăn cắp bài.",
+    images: ["/Resources/exploding kitten/taco_cat.png"],
+    color: "#ffaa44",
+    bg: "#3d1e00",
+  },
+  [CARD_TYPES.CATTERMELON]: {
+    label: "Cattermelon",
+    desc: "Mèo dưa hấu. Ghép đôi để ăn cắp bài.",
+    images: ["/Resources/exploding kitten/melon_cat.jpg"],
+    color: "#64d96a",
+    bg: "#0c2c14",
+  },
+  [CARD_TYPES.HAIRY_POTATO_CAT]: {
+    label: "Hairy Potato Cat",
+    desc: "Mèo khoai tây. Ghép đôi để ăn cắp bài.",
+    images: ["/Resources/exploding kitten/shit_cat.png"],
+    color: "#c8a060",
+    bg: "#2c1e08",
+  },
+  [CARD_TYPES.BEARD_CAT]: {
+    label: "Beard Cat",
+    desc: "Mèo râu. Ghép đôi để ăn cắp bài.",
+    images: ["/Resources/exploding kitten/beard_cat.jpg"],
+    color: "#88aaff",
+    bg: "#0c1838",
+  },
+  [CARD_TYPES.RAINBOW_CAT]: {
+    label: "Rainbow Cat",
+    desc: "Mèo cầu vồng. Ghép đôi để ăn cắp bài.",
+    images: ["/Resources/exploding kitten/rainbowcat.png"],
+    color: "#ff88dd",
+    bg: "#3d0c2c",
+  },
+};
+
+export function getCardImage(type) {
+  const meta = CARD_META[type];
+  if (!meta) return "/Resources/exploding kitten/backcard.png";
+  const imgs = meta.images;
+  return imgs[Math.floor(Math.random() * imgs.length)];
+}
+
+export function getCardImageStable(type, seed = 0) {
+  const meta = CARD_META[type];
+  if (!meta) return "/Resources/exploding kitten/backcard.png";
+  const imgs = meta.images;
+  return imgs[seed % imgs.length];
+}
+
+// ─── Deck builder ────────────────────────────────────────────────────────────
+
+function buildBaseDeck() {
+  const deck = [];
+  const add = (type, count) => {
+    for (let i = 0; i < count; i++) {
+      deck.push({ type, id: `${type}_${i}_${Math.random().toString(36).slice(2)}` });
+    }
+  };
+  add(CARD_TYPES.ATTACK, 4);
+  add(CARD_TYPES.SKIP, 4);
+  add(CARD_TYPES.FAVOR, 4);
+  add(CARD_TYPES.SHUFFLE, 4);
+  add(CARD_TYPES.SEE_THE_FUTURE, 5);
+  add(CARD_TYPES.NOPE, 5);
+  add(CARD_TYPES.TACOCAT, 4);
+  add(CARD_TYPES.CATTERMELON, 4);
+  add(CARD_TYPES.HAIRY_POTATO_CAT, 4);
+  add(CARD_TYPES.BEARD_CAT, 4);
+  add(CARD_TYPES.RAINBOW_CAT, 4);
+  return deck;
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ─── Turn helpers ────────────────────────────────────────────────────────────
+
+function getNextLivingPlayer(players, currentRole) {
+  const order = Object.keys(players).sort();
+  const alive = order.filter(r => players[r] && players[r].alive !== false);
+  if (alive.length === 0) return currentRole;
+  const idx = alive.indexOf(currentRole);
+  if (idx === -1) return alive[0];
+  return alive[(idx + 1) % alive.length];
+}
+
+// ─── Game actions ────────────────────────────────────────────────────────────
+
+export async function startGame(roomId) {
+  const snap = await get(ref(db, `rooms/${roomId}/players`));
+  const players = snap.val();
+  const roles = Object.keys(players).sort();
+  const playerCount = roles.length;
+
+  let deck = shuffle(buildBaseDeck());
+
+  const hands = {};
+  for (const role of roles) {
+    hands[role] = [];
+    for (let i = 0; i < 7; i++) {
+      hands[role].push(deck.shift());
+    }
+    hands[role].push({ type: CARD_TYPES.DEFUSE, id: `defuse_deal_${role}` });
+  }
+
+  const bombs = [];
+  for (let i = 0; i < playerCount - 1; i++) {
+    bombs.push({ type: CARD_TYPES.EXPLODING_KITTEN, id: `bomb_${i}` });
+  }
+
+  const extraDefuses = Math.max(0, 6 - playerCount);
+  for (let i = 0; i < extraDefuses; i++) {
+    deck.push({ type: CARD_TYPES.DEFUSE, id: `defuse_extra_${i}` });
+  }
+
+  deck = shuffle([...deck, ...bombs]);
+
+  const startRole = roles[Math.floor(Math.random() * roles.length)];
+
+  const playerUpdates = {};
+  for (const role of roles) {
+    playerUpdates[`players/${role}/hand`] = hands[role];
+    playerUpdates[`players/${role}/alive`] = true;
+  }
+
+  await update(ref(db, `rooms/${roomId}`), {
+    ...playerUpdates,
+    status: "playing",
+    "game/drawPile": deck,
+    "game/discardPile": [],
+    "game/turn": startRole,
+    "game/attackStack": 0,
+    "game/pendingAction": null,
+    "game/seeTheFuture": null,
+    "game/nopeChain": [],
+    "game/nopeWindow": null, // null = no nope window open
+    "game/winner": null,
+    "game/log": [`Game started! ${players[startRole].name} goes first.`],
+    "game/phase": "play",
+  });
+}
+
+export async function playCard(roomId, playerRole, cardId, extraData = {}) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const hand = players[playerRole].hand || [];
+  const cardIdx = hand.findIndex(c => c.id === cardId);
+  if (cardIdx === -1) return;
+  const card = hand[cardIdx];
+  const newHand = hand.filter((_, i) => i !== cardIdx);
+  const discard = [...(game.discardPile || []), card];
+  const logBase = `${players[playerRole].name} played ${CARD_META[card.type]?.label ?? card.type}.`;
+
+  // ── NOPE: can be played by ANYONE during a nope window ──
+  if (card.type === CARD_TYPES.NOPE) {
+    const prev = game.pendingAction;
+    if (!prev) return; // nothing to nope
+
+    const nopeChain = [...(game.nopeChain || []), { by: playerRole, cardId: card.id }];
+    const nopeCount = nopeChain.length;
+    const isEffective = nopeCount % 2 === 1; // odd = action canceled
+
+    const logMsg = isEffective
+      ? `🚫 ${players[playerRole].name} Noped! Action canceled.`
+      : `↩️ ${players[playerRole].name} Noped the Nope! Action restored.`;
+
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${playerRole}/hand`]: newHand,
+      "game/discardPile": discard,
+      "game/nopeChain": nopeChain,
+      // Keep nope window open so others can counter-nope
+      "game/nopeWindow": {
+        open: true,
+        expiresAt: Date.now() + 5000,
+        pendingType: prev.type,
+        isCurrentlyNoped: isEffective,
+      },
+      "game/phase": isEffective
+        ? "nope_window" // still open for counter-nope
+        : (prev?.nopeWindowPhase || "play"),
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+    return;
+  }
+
+  // ── PAIR CAT CARDS ──
+  if (CAT_CARD_TYPES.has(card.type) && extraData.isPair) {
+    const partnerIdx = hand.findIndex(c => c.type === card.type && c.id !== cardId);
+    if (partnerIdx === -1) return; // no pair
+    const partnerCard = hand[partnerIdx];
+    const finalHand = newHand.filter(c => c.id !== partnerCard.id);
+    const pairDiscard = [...(game.discardPile || []), card, partnerCard];
+    const logMsg = `${players[playerRole].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
+
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${playerRole}/hand`]: finalHand,
+      "game/discardPile": pairDiscard,
+      "game/phase": "pair_target",
+      "game/nopeChain": [],
+      "game/nopeWindow": {
+        open: true,
+        expiresAt: Date.now() + 5000,
+        pendingType: "pair",
+        isCurrentlyNoped: false,
+      },
+      "game/pendingAction": {
+        type: "pair",
+        by: playerRole,
+        cardType: card.type,
+        savedAttackStack: game.attackStack || 0,
+        nopeWindowPhase: "pair_target",
+      },
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+    return;
+  }
+
+  // ── SINGLE CAT CARD: do nothing, show hint ──
+  if (CAT_CARD_TYPES.has(card.type)) {
+    // Restore card to hand — don't consume it
+    return;
+  }
+
+  switch (card.type) {
+    case CARD_TYPES.SKIP: {
+      const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
+      const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/turn": nextPlayer,
+        "game/attackStack": turnsOwed,
+        "game/phase": "nope_window",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "skip",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": {
+          type: "skip",
+          by: playerRole,
+          resolvedTurn: nextPlayer,
+          resolvedAttackStack: turnsOwed,
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "play",
+        },
+        "game/log": [logBase + " Turn skipped.", ...(game.log || [])].slice(0, 20),
+      });
+      break;
+    }
+
+    case CARD_TYPES.ATTACK: {
+      const nextPlayer = getNextLivingPlayer(players, playerRole);
+      const newStack = (game.attackStack || 0) + 2;
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/phase": "nope_window",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "attack",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": {
+          type: "attack",
+          by: playerRole,
+          resolvedTurn: nextPlayer,
+          resolvedAttackStack: newStack,
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "play",
+        },
+        "game/log": [
+          logBase + ` ${players[nextPlayer].name} must take ${newStack} turns!`,
+          ...(game.log || []),
+        ].slice(0, 20),
+      });
+      break;
+    }
+
+    case CARD_TYPES.FAVOR: {
+      // Step 1: attacker picks target (UI-driven, targetRole passed in extraData)
+      const { targetRole } = extraData;
+      if (!targetRole) {
+        // Phase: active player chooses who to favor
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/phase": "favor_choose_target",
+          "game/nopeChain": [],
+          "game/nopeWindow": null,
+          "game/pendingAction": {
+            type: "favor",
+            by: playerRole,
+            savedAttackStack: game.attackStack || 0,
+            savedTurn: game.turn,
+            nopeWindowPhase: "play",
+          },
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        // Step 2: target chosen → open nope window, then target gives card
+        await update(ref(db, `rooms/${roomId}`), {
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "favor",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": {
+            type: "favor",
+            by: playerRole,
+            target: targetRole,
+            savedAttackStack: game.attackStack || 0,
+            savedTurn: game.turn,
+            nopeWindowPhase: "favor_give",
+          },
+          "game/log": [
+            logBase + ` ${players[targetRole].name} must give a card.`,
+            ...(game.log || []),
+          ].slice(0, 20),
+        });
+      }
+      break;
+    }
+
+    case CARD_TYPES.SHUFFLE: {
+      const shuffled = shuffle(game.drawPile || []);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/drawPile": shuffled,
+        "game/phase": "nope_window",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "shuffle",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": {
+          type: "shuffle",
+          by: playerRole,
+          shuffledPile: shuffled,
+          originalPile: game.drawPile || [],
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "play",
+        },
+        "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+      });
+      break;
+    }
+
+    case CARD_TYPES.SEE_THE_FUTURE: {
+      const top3 = (game.drawPile || []).slice(-3).reverse();
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/phase": "nope_window",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "see_the_future",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": {
+          type: "see_the_future",
+          by: playerRole,
+          top3,
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "play",
+        },
+        "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+      });
+      break;
+    }
+
+    default:
+      return;
+  }
+}
+
+// Called when nope window expires (client-side timer calls this)
+export async function resolveNopeWindow(roomId) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const pending = game?.pendingAction;
+  const nopeWindow = game?.nopeWindow;
+
+  if (!nopeWindow?.open || !pending) return;
+
+  const nopeCount = (game.nopeChain || []).length;
+  const isNoped = nopeCount % 2 === 1;
+
+  if (isNoped) {
+    // Action was noped — restore state before the card was played
+    await update(ref(db, `rooms/${roomId}`), {
+      "game/phase": "play",
+      "game/pendingAction": null,
+      "game/nopeWindow": null,
+      "game/nopeChain": [],
+      "game/turn": pending.savedTurn || game.turn,
+      "game/attackStack": pending.savedAttackStack ?? game.attackStack,
+      "game/log": ["🚫 Action was Noped!", ...(game.log || [])].slice(0, 20),
+    });
+    return;
+  }
+
+  // Not noped — resolve the action
+  switch (pending.type) {
+    case "skip":
+    case "attack": {
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+        "game/turn": pending.resolvedTurn,
+        "game/attackStack": pending.resolvedAttackStack,
+      });
+      break;
+    }
+    case "shuffle": {
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+        // drawPile was already shuffled when card was played
+      });
+      break;
+    }
+    case "see_the_future": {
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/seeTheFuture": { cards: pending.top3, forPlayer: pending.by },
+        "game/phase": "see_future",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      });
+      break;
+    }
+    case "favor": {
+      // Move to favor_give phase: target must now choose a card
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/phase": "favor_give",
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      });
+      break;
+    }
+    case "pair": {
+      // Move to pair_target phase: attacker chooses who to steal from
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/phase": "pair_target",
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      });
+      break;
+    }
+    default: {
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      });
+    }
+  }
+}
+
+export async function drawCard(roomId, playerRole) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  if (!game || game.turn !== playerRole) return;
+
+  const drawPile = [...(game.drawPile || [])];
+  if (drawPile.length === 0) return;
+
+  const drawnCard = drawPile.pop();
+  const hand = [...(players[playerRole].hand || [])];
+  const attackStack = game.attackStack || 0;
+
+  if (drawnCard.type === CARD_TYPES.EXPLODING_KITTEN) {
+    const defuseIdx = hand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+    if (defuseIdx !== -1) {
+      const newHand = hand.filter((_, i) => i !== defuseIdx);
+      const discard = [...(game.discardPile || []), hand[defuseIdx]];
+      const logMsg = `${players[playerRole].name} drew the Exploding Kitten! Used Defuse 💣`;
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/drawPile": drawPile,
+        "game/discardPile": discard,
+        "game/phase": "defuse",
+        "game/nopeWindow": null,
+        "game/pendingAction": { type: "defuse", by: playerRole, bomb: drawnCard },
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      const logMsg = `💥 ${players[playerRole].name} exploded! No defuse!`;
+      const newAttackStack = Math.max(0, attackStack - 1);
+      const newPlayers = {
+        ...players,
+        [playerRole]: { ...players[playerRole], alive: false },
+      };
+      const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
+      const aliveRoles = Object.keys(players).filter(
+        r => r !== playerRole && players[r].alive !== false
+      );
+
+      const updates = {
+        [`players/${playerRole}/alive`]: false,
+        [`players/${playerRole}/hand`]: [],
+        "game/drawPile": drawPile,
+        "game/discardPile": [...(game.discardPile || []), drawnCard],
+        "game/turn": nextPlayer,
+        "game/attackStack": newAttackStack,
+        "game/phase": "play",
+        "game/nopeWindow": null,
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      };
+
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    }
+  } else {
+    const newHand = [...hand, drawnCard];
+    const newAttackStack = Math.max(0, attackStack - 1);
+    const nextPlayer =
+      newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+    const logMsg = `${players[playerRole].name} drew a card.`;
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${playerRole}/hand`]: newHand,
+      "game/drawPile": drawPile,
+      "game/turn": nextPlayer,
+      "game/attackStack": newAttackStack,
+      "game/phase": "play",
+      "game/nopeWindow": null,
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+  }
+}
+
+export async function placeBombAfterDefuse(roomId, playerRole, position) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const drawPile = [...(game.drawPile || [])];
+  const bomb = game.pendingAction?.bomb;
+  if (!bomb) return;
+
+  const pos = Math.max(0, Math.min(position, drawPile.length));
+  drawPile.splice(pos, 0, bomb);
+
+  const attackStack = game.attackStack || 0;
+  const newAttackStack = Math.max(0, attackStack - 1);
+  const nextPlayer =
+    newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+  const logMsg = `${players[playerRole].name} placed the bomb back. 😅`;
+
+  await update(ref(db, `rooms/${roomId}`), {
+    "game/drawPile": drawPile,
+    "game/turn": nextPlayer,
+    "game/attackStack": newAttackStack,
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/nopeWindow": null,
+    "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+  });
+}
+
+// Target gives a specific card they choose to the favor requester
+export async function giveFavorCard(roomId, giverRole, cardId) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const pending = game.pendingAction;
+  if (!pending || pending.type !== "favor") return;
+
+  const giverHand = [...(players[giverRole].hand || [])];
+  const cardIdx = giverHand.findIndex(c => c.id === cardId);
+  if (cardIdx === -1) return;
+  const card = giverHand[cardIdx];
+  const newGiverHand = giverHand.filter((_, i) => i !== cardIdx);
+  const receiverHand = [...(players[pending.by].hand || []), card];
+  const logMsg = `${players[giverRole].name} gave ${CARD_META[card.type]?.label ?? card.type} to ${players[pending.by].name}.`;
+
+  const attackStack = game.attackStack || 0;
+  const newAttackStack = Math.max(0, attackStack - 1);
+  const nextPlayer =
+    newAttackStack > 0 ? pending.by : getNextLivingPlayer(players, pending.by);
+
+  await update(ref(db, `rooms/${roomId}`), {
+    [`players/${giverRole}/hand`]: newGiverHand,
+    [`players/${pending.by}/hand`]: receiverHand,
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/nopeWindow": null,
+    "game/turn": nextPlayer,
+    "game/attackStack": newAttackStack,
+    "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+  });
+}
+
+// Pair steal: thief chose a target → randomly steal one of their visible (face-down) cards
+export async function stealPairCard(roomId, thiefRole, targetRole) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+
+  if (!players[targetRole] || players[targetRole].alive === false) return;
+
+  const targetHand = [...(players[targetRole].hand || [])];
+  if (targetHand.length === 0) return;
+
+  const stolenIdx = Math.floor(Math.random() * targetHand.length);
+  const stolen = targetHand[stolenIdx];
+  const newTargetHand = targetHand.filter((_, i) => i !== stolenIdx);
+  const thiefHand = [...(players[thiefRole].hand || []), stolen];
+  const logMsg = `${players[thiefRole].name} stole a card from ${players[targetRole].name}!`;
+
+  const attackStack = game.attackStack || 0;
+  const newAttackStack = Math.max(0, attackStack - 1);
+  const nextPlayer =
+    newAttackStack > 0 ? thiefRole : getNextLivingPlayer(players, thiefRole);
+
+  await update(ref(db, `rooms/${roomId}`), {
+    [`players/${thiefRole}/hand`]: thiefHand,
+    [`players/${targetRole}/hand`]: newTargetHand,
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/nopeWindow": null,
+    "game/turn": nextPlayer,
+    "game/attackStack": newAttackStack,
+    "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+  });
+}
+
+export async function closeSeeTheFuture(roomId) {
+  await update(ref(db, `rooms/${roomId}/game`), {
+    seeTheFuture: null,
+    phase: "play",
+    nopeWindow: null,
+  });
+}
+
+export async function requestRematch(roomId, playerRole) {
+  const playersRef = ref(db, `rooms/${roomId}/players`);
+  await set(ref(db, `rooms/${roomId}/players/${playerRole}/rematch`), true);
+
+  await runTransaction(playersRef, (players) => {
+    if (!players) return players;
+    const allWant = Object.values(players).every(p => p.rematch === true);
+    if (!allWant) return players;
+    const reset = { ...players };
+    Object.keys(reset).forEach(role => {
+      reset[role] = { ...reset[role], rematch: false };
+    });
+    return reset;
+  });
+
+  const snap = await get(playersRef);
+  const players = snap.val();
+  const anyStillSet = Object.values(players).some(p => p.rematch === true);
+
+  if (!anyStillSet) {
+    await update(ref(db, `rooms/${roomId}`), { status: "waiting", game: null });
+    await startGame(roomId);
+  }
+}
