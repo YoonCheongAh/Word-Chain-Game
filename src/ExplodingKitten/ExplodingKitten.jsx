@@ -388,6 +388,24 @@ function GameBoardScreen({
   const lastFxIdRef = useRef(null);
   const fxTimerRef = useRef(null);
 
+  // ── Draw card animation ──
+  // Trigger a flying-card animation whenever the draw pile shrinks (a card was drawn).
+  const [drawAnim, setDrawAnim] = useState(0);
+  const prevDrawCountRef = useRef(drawPile.length);
+  const drawTimerRef = useRef(null);
+
+  useEffect(() => {
+    const prev = prevDrawCountRef.current;
+    if (drawPile.length < prev) {
+      setDrawAnim(Date.now());
+      if (drawTimerRef.current) clearTimeout(drawTimerRef.current);
+      drawTimerRef.current = setTimeout(() => setDrawAnim(0), 650);
+    }
+    prevDrawCountRef.current = drawPile.length;
+    return () => clearTimeout(drawTimerRef.current);
+  }, [drawPile.length]);
+
+
   useEffect(() => {
     if (!topDiscard) return;
     if (lastFxIdRef.current === topDiscard.id) return;
@@ -461,14 +479,34 @@ function GameBoardScreen({
             <div className="ek-piles-row">
               <div className="ek-pile-slot">
                 <div
-                  className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''}`}
+                  className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''} ${drawAnim ? 'ek-pile-draw-pulse' : ''}`}
                   onClick={myTurn && phase === 'play' ? onDrawCard : undefined}
                 >
                   <div className="ek-card-back">
-                    <span className="ek-card-back-icon">🐱</span>
+                    <img
+                      src="/Resources/exploding kitten/backcard.png"
+                      alt="Draw pile card back"
+                      className="ek-card-back-img"
+                      onError={e => {
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'flex';
+                      }}
+                    />
+                    <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
                   </div>
                   <div className="ek-pile-count-badge">{drawPile.length}</div>
                 </div>
+                {/* Flying card animation when a card is drawn */}
+                {drawAnim && (
+                  <div className="ek-draw-fly" key={drawAnim}>
+                    <img
+                      src="/Resources/exploding kitten/backcard.png"
+                      alt=""
+                      className="ek-card-back-img"
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                  </div>
+                )}
                 <div className="ek-pile-name">Draw</div>
               </div>
 
@@ -1064,18 +1102,34 @@ function getStyles() {
     .ek-table-felt-game { width: min(480px, 90vw); background: radial-gradient(ellipse at center, #1e4530 0%, #122a1c 60%, #0c1e12 100%); border: 2px solid var(--ek-felt-border); border-radius: 24px; padding: 20px 20px 18px; box-shadow: inset 0 2px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 14px; }
 
     .ek-piles-row { display: flex; gap: 36px; align-items: flex-end; }
-    .ek-pile-slot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .ek-pile-slot { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
     .ek-pile-name { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 2px; font-family: 'DM Mono', monospace; }
     .ek-pile-card { width: var(--ek-pile-w); height: var(--ek-pile-h); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid rgba(255,255,255,0.1); transition: transform .2s, box-shadow .2s; }
     .ek-pile-empty { width: var(--ek-pile-w); height: var(--ek-pile-h); border-radius: 10px; border: 1.5px dashed rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
     .ek-pile-empty-text { font-size: 10px; color: rgba(255,255,255,0.2); }
     .ek-pile-clickable { cursor: pointer; }
     .ek-pile-clickable:hover { transform: translateY(-5px) scale(1.05); box-shadow: 0 10px 28px rgba(61,214,140,0.35); border-color: var(--ek-green); }
-    .ek-card-back { width: 100%; height: 100%; background: linear-gradient(160deg, #3d1200, #1a0800); border-radius: 9px; display: flex; align-items: center; justify-content: center; }
+    .ek-card-back { width: 100%; height: 100%; background: linear-gradient(160deg, #3d1200, #1a0800); border-radius: 9px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ek-card-back-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .ek-card-back-icon { font-size: 32px; opacity: 0.4; }
     .ek-card-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .ek-pile-count-badge { position: absolute; bottom: 5px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; font-family: 'DM Mono', monospace; }
     .ek-discard-label { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); padding: 6px 4px 4px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.7); }
+
+    /* ── Draw card animation ── */
+    .ek-pile-draw-pulse { animation: drawPulse .35s ease; }
+    @keyframes drawPulse { 0% { transform: scale(1); } 45% { transform: scale(0.92); } 100% { transform: scale(1); } }
+    .ek-draw-fly {
+      position: absolute; top: 0; left: 50%; width: var(--ek-pile-w); height: var(--ek-pile-h);
+      margin-left: calc(var(--ek-pile-w) / -2); border-radius: 10px; overflow: hidden;
+      pointer-events: none; z-index: 60; box-shadow: 0 14px 36px rgba(0,0,0,0.55);
+      animation: drawFly .62s cubic-bezier(.3,.7,.3,1) forwards;
+    }
+    @keyframes drawFly {
+      0%   { opacity: 0; transform: translateY(0) translateX(0) scale(1) rotate(0deg); }
+      18%  { opacity: 1; }
+      100% { opacity: 0; transform: translateY(180px) translateX(-30px) scale(1.25) rotate(-10deg); }
+    }
 
     /* ── Nope Banner ── */
     .ek-nope-banner {
