@@ -205,7 +205,7 @@ export default function ExplodingKitten() {
         onDrawCard={handleDrawCard}
         onPlaceBomb={(pos) => placeBombAfterDefuse(roomId, myRole, pos)}
         onGiveCard={(cId) => giveFavorCard(roomId, myRole, cId)}
-        onStealCard={(target) => stealPairCard(roomId, myRole, target)}
+        onStealCard={(target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex)}
         onChooseFavorTarget={(targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole })}
         onSelectFavorTarget={(targetRole) => {
           // Called from FavorTargetPanel; pending already has the card consumed
@@ -381,6 +381,32 @@ function GameBoardScreen({
   const discardPile = game?.discardPile || [];
   const topDiscard = discardPile[discardPile.length - 1];
   const log = game?.log || [];
+
+  // ── Action / function card play effect ──
+  // Fire a flashy animation whenever a new action card lands on the discard pile.
+  const [cardFx, setCardFx] = useState(null);
+  const lastFxIdRef = useRef(null);
+  const fxTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!topDiscard) return;
+    if (lastFxIdRef.current === topDiscard.id) return;
+    lastFxIdRef.current = topDiscard.id;
+
+    // Only animate action / function cards (everything except the cat cards & defuse).
+    const isCat = CAT_CARD_TYPES.has(topDiscard.type);
+    const isActionCard =
+      !isCat &&
+      topDiscard.type !== CARD_TYPES.DEFUSE &&
+      topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN;
+    if (!isActionCard) return;
+
+    setCardFx({ key: topDiscard.id, type: topDiscard.type });
+    if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
+    fxTimerRef.current = setTimeout(() => setCardFx(null), 1100);
+    return () => clearTimeout(fxTimerRef.current);
+  }, [topDiscard?.id]);
+
 
   const allRoles = ['player1', 'player2', 'player3', 'player4', 'player5'];
   const otherRoles = allRoles.filter(r => players[r] && r !== myRole);
@@ -596,6 +622,48 @@ function GameBoardScreen({
       )}
 
       {toast && <div className="ek-toast">{toast}</div>}
+
+      {/* Action / function card visual effect */}
+      {cardFx && <CardPlayEffect key={cardFx.key} type={cardFx.type} />}
+    </div>
+  );
+}
+
+/* ─── CARD PLAY EFFECT ───────────────────────────────────────────────── */
+function CardPlayEffect({ type }) {
+  const meta = CARD_META[type];
+  const color = meta?.color || '#FF9020';
+  const img = (meta?.images || [])[0] || '';
+  const sparks = [...Array(10)];
+  return (
+    <div className="ek-fx-layer" style={{ '--fx-color': color }} aria-hidden="true">
+      <div className="ek-fx-ring" />
+      <div className="ek-fx-ring ek-fx-ring-2" />
+      {sparks.map((_, i) => {
+        const angle = (i / sparks.length) * Math.PI * 2;
+        const dist = 120 + (i % 3) * 36;
+        return (
+          <span
+            key={i}
+            className="ek-fx-spark"
+            style={{
+              '--sx': `${Math.cos(angle) * dist}px`,
+              '--sy': `${Math.sin(angle) * dist}px`,
+              animationDelay: `${0.15 + (i % 4) * 0.03}s`,
+            }}
+          />
+        );
+      })}
+      <div className="ek-fx-card">
+        {img && (
+          <img
+            src={img || "/placeholder.svg"}
+            alt={meta?.label || type}
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+        )}
+      </div>
+      <div className="ek-fx-label">{meta?.label || type}</div>
     </div>
   );
 }
@@ -699,20 +767,68 @@ function FavorGivePanel({ myHand, requesterName, onGive }) {
 
 /* ─── PAIR TARGET PANEL ──────────────────────────────────────────────── */
 function PairTargetPanel({ players, myRole, onSteal }) {
+  // Two-step flow: 1) choose a player, 2) choose a specific face-down card.
+  const [chosenTarget, setChosenTarget] = useState(null);
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   const targets = Object.entries(players).filter(
     ([role, p]) => role !== myRole && p?.alive !== false
   );
+
+  // Step 2 — pick a specific face-down card from the chosen target
+  if (chosenTarget) {
+    const targetPlayer = players[chosenTarget];
+    const handCount = targetPlayer?.hand?.length || 0;
+    return (
+      <div className="ek-panel-inner">
+        <div className="ek-panel-icon">🃏</div>
+        <h3 className="ek-panel-title">Pick a card to steal</h3>
+        <p className="ek-panel-sub">
+          From {targetPlayer?.name} — cards stay face-down. Choose by position.
+        </p>
+
+        <div className="ek-steal-grid">
+          {[...Array(handCount)].map((_, i) => (
+            <button
+              key={i}
+              className={`ek-steal-card ${hoverIdx === i ? 'ek-steal-card-hover' : ''}`}
+              style={{ animationDelay: `${i * 0.05}s` }}
+              onMouseEnter={() => setHoverIdx(i)}
+              onMouseLeave={() => setHoverIdx(null)}
+              onClick={() => onSteal(chosenTarget, i)}
+            >
+              <div className="ek-steal-card-back">
+                <span className="ek-steal-card-icon">🐱</span>
+                <span className="ek-steal-card-q">?</span>
+              </div>
+              <div className="ek-steal-card-num">#{i + 1}</div>
+            </button>
+          ))}
+        </div>
+
+        <button
+          className="ek-action-btn ek-action-draw"
+          style={{ width: '100%', marginTop: 14 }}
+          onClick={() => setChosenTarget(null)}
+        >
+          ← Back to players
+        </button>
+      </div>
+    );
+  }
+
+  // Step 1 — choose which player to steal from
   return (
     <div className="ek-panel-inner">
       <div className="ek-panel-icon">🐱</div>
       <h3 className="ek-panel-title">Cat Pair — Steal a card!</h3>
-      <p className="ek-panel-sub">Choose a player to steal a random face-down card from</p>
+      <p className="ek-panel-sub">Choose a player, then pick a specific face-down card</p>
       <div className="ek-target-list">
         {targets.map(([role, p]) => (
           <button
             key={role}
             className="ek-target-btn"
-            onClick={() => onSteal(role)}
+            onClick={() => setChosenTarget(role)}
             disabled={!p.hand || p.hand.length === 0}
           >
             <span className="ek-target-avatar">{p.name[0]}</span>
@@ -1034,6 +1150,83 @@ function getStyles() {
     /* Pair target mini cards */
     .ek-opp-mini-cards { display: flex; gap: 2px; }
     .ek-opp-mini-card { font-size: 14px; }
+
+    /* ── Steal: pick a specific face-down card ── */
+    .ek-steal-grid {
+      display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;
+      margin: 4px 0; max-height: 46vh; overflow-y: auto; padding: 6px;
+    }
+    .ek-steal-card {
+      position: relative; width: 74px; height: 104px; padding: 0;
+      border: none; background: none; cursor: pointer;
+      border-radius: 10px; transform-origin: bottom center;
+      animation: stealCardIn .4s cubic-bezier(.34,1.56,.64,1) backwards;
+      transition: transform .18s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes stealCardIn { from { opacity: 0; transform: translateY(16px) rotateX(40deg); } to { opacity: 1; transform: translateY(0) rotateX(0); } }
+    .ek-steal-card:hover, .ek-steal-card-hover { transform: translateY(-10px) scale(1.07); }
+    .ek-steal-card-back {
+      width: 100%; height: 100%; border-radius: 10px;
+      background: linear-gradient(160deg, #3d1200, #1a0800);
+      border: 2px solid rgba(255,144,32,0.35);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: border-color .18s, box-shadow .18s;
+    }
+    .ek-steal-card:hover .ek-steal-card-back, .ek-steal-card-hover .ek-steal-card-back {
+      border-color: var(--ek-ember);
+      box-shadow: 0 8px 22px rgba(255,90,31,0.45), 0 0 0 2px var(--ek-ember);
+    }
+    .ek-steal-card-icon { font-size: 26px; opacity: 0.5; }
+    .ek-steal-card-q { font-family: 'Bebas Neue', sans-serif; font-size: 22px; color: rgba(255,144,32,0.7); letter-spacing: 1px; }
+    .ek-steal-card-num { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.55); }
+
+    /* ── Action / function card play effect (flying card + ring burst) ── */
+    .ek-fx-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+    .ek-fx-card {
+      width: 130px; height: 182px; border-radius: 14px; overflow: hidden;
+      border: 3px solid var(--fx-color, var(--ek-ember));
+      box-shadow: 0 0 40px var(--fx-color, var(--ek-ember)), 0 18px 50px rgba(0,0,0,0.6);
+      animation: fxCardPlay 1.05s cubic-bezier(.2,.8,.3,1) forwards;
+    }
+    .ek-fx-card img { width: 100%; height: 100%; object-fit: cover; }
+    @keyframes fxCardPlay {
+      0%   { opacity: 0; transform: translateY(120px) scale(.5) rotate(-12deg); }
+      22%  { opacity: 1; transform: translateY(0) scale(1.12) rotate(3deg); }
+      58%  { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+      100% { opacity: 0; transform: translateY(-60px) scale(.85) rotate(0deg); }
+    }
+    .ek-fx-ring {
+      position: absolute; width: 130px; height: 130px; border-radius: 50%;
+      border: 4px solid var(--fx-color, var(--ek-ember));
+      animation: fxRing 1s ease-out forwards; animation-delay: .15s; opacity: 0;
+    }
+    .ek-fx-ring-2 { animation-delay: .32s; }
+    @keyframes fxRing {
+      0%   { opacity: .8; transform: scale(.3); }
+      100% { opacity: 0; transform: scale(3.2); }
+    }
+    .ek-fx-label {
+      position: absolute; bottom: 26%; font-family: 'Bebas Neue', sans-serif;
+      font-size: 38px; letter-spacing: 3px; color: #fff;
+      text-shadow: 0 2px 18px var(--fx-color, var(--ek-ember)), 0 0 30px var(--fx-color, var(--ek-ember));
+      animation: fxLabel 1.05s ease-out forwards;
+    }
+    @keyframes fxLabel {
+      0%   { opacity: 0; transform: translateY(20px) scale(.7); }
+      28%  { opacity: 1; transform: translateY(0) scale(1); }
+      70%  { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-14px) scale(1.05); }
+    }
+    .ek-fx-spark {
+      position: absolute; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--fx-color, var(--ek-ember));
+      box-shadow: 0 0 10px var(--fx-color, var(--ek-ember));
+      animation: fxSpark .9s ease-out forwards;
+    }
+    @keyframes fxSpark {
+      0%   { opacity: 1; transform: translate(0,0) scale(1); }
+      100% { opacity: 0; transform: translate(var(--sx), var(--sy)) scale(.3); }
+    }
 
     /* ══ MY HAND ══ */
     .ek-my-zone { width: 100%; flex-shrink: 0; background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%); border-top: 1px solid rgba(255,255,255,0.06); padding: 10px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }

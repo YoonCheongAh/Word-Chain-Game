@@ -745,8 +745,10 @@ export async function giveFavorCard(roomId, giverRole, cardId) {
   });
 }
 
-// Pair steal: thief chose a target → randomly steal one of their visible (face-down) cards
-export async function stealPairCard(roomId, thiefRole, targetRole) {
+// Pair steal: thief chose a target AND a specific (face-down) card position to steal.
+// cardIndex is the position the thief picked while the card was still face-down.
+// Falls back to random only if no valid index is provided (backwards compatible).
+export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = null) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   const room = snap.val();
   const { game, players } = room;
@@ -756,7 +758,9 @@ export async function stealPairCard(roomId, thiefRole, targetRole) {
   const targetHand = [...(players[targetRole].hand || [])];
   if (targetHand.length === 0) return;
 
-  const stolenIdx = Math.floor(Math.random() * targetHand.length);
+  const validIndex =
+    Number.isInteger(cardIndex) && cardIndex >= 0 && cardIndex < targetHand.length;
+  const stolenIdx = validIndex ? cardIndex : Math.floor(Math.random() * targetHand.length);
   const stolen = targetHand[stolenIdx];
   const newTargetHand = targetHand.filter((_, i) => i !== stolenIdx);
   const thiefHand = [...(players[thiefRole].hand || []), stolen];
