@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from '../roomService';
@@ -11,6 +11,29 @@ import {
   resolveNopeWindow,
   CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable,
 } from './ExplodingKittenService';
+
+// ── Inject styles ONCE at module level, not in useEffect ──
+const STYLE_ID = 'ek-styles';
+if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = getStyles();
+  document.head.appendChild(style);
+}
+
+// ── Static arrays moved outside components ──
+const BOMB_PARTICLES = [...Array(22)];
+const BOMB_EMBERS = [...Array(14)];
+const LOBBY_SPARKS = [...Array(12)];
+const OPP_POSITIONS = { 1: ['north'], 2: ['northwest', 'northeast'], 3: ['northwest', 'north', 'northeast'], 4: ['west', 'northwest', 'northeast', 'east'] };
+const SLOT_COLORS = ['#FF6B35', '#5DCAA5', '#85B7EB', '#C385EB', '#FFD700', '#FF1493'];
+const SLOT_LABELS = ['HOST', 'P2', 'P3', 'P4', 'P5', 'P6'];
+const PLAYER_SLOTS = ['player1', 'player2', 'player3', 'player4', 'player5', 'player6'];
+const ALL_ROLES = ['player1', 'player2', 'player3', 'player4', 'player5'];
+const ACTION_LABEL_MAP = {
+  attack: 'Attack', skip: 'Skip', favor: 'Favor',
+  shuffle: 'Shuffle', see_the_future: 'See the Future', pair: 'Cat Pair steal',
+};
 
 export default function ExplodingKitten() {
   const [screen, setScreen] = useState('lobby');
@@ -33,15 +56,7 @@ export default function ExplodingKitten() {
   const pending = game?.pendingAction;
   const nopeWindow = game?.nopeWindow;
 
-  useEffect(() => {
-    const id = 'ek-styles';
-    if (!document.getElementById(id)) {
-      const style = document.createElement('style');
-      style.id = id;
-      style.textContent = getStyles();
-      document.head.appendChild(style);
-    }
-  }, []);
+  // Removed: useEffect for style injection (now done at module level above)
 
   useEffect(() => {
     if (!roomId) return;
@@ -49,25 +64,21 @@ export default function ExplodingKitten() {
     return () => unsub?.();
   }, [roomId]);
 
+  // Merged status effects to avoid multiple useEffect evaluations
   useEffect(() => {
     if (!roomData) return;
-    if (roomData.status === 'playing' && screen !== 'game') setScreen('game');
-    if (roomData.status === 'dissolved') resetToLobby();
-    if ((roomData.status === 'waiting' || roomData.status === 'ready') && screen === 'lobby' && roomId) {
-      setScreen('room');
-    }
+    const status = roomData.status;
+    if (status === 'playing' && screen !== 'game') setScreen('game');
+    else if (status === 'dissolved') resetToLobby();
+    else if ((status === 'waiting' || status === 'ready') && screen === 'lobby' && roomId) setScreen('room');
   }, [roomData?.status]);
 
   useEffect(() => {
     if (!nopeWindow?.open || !pending) return;
     if (pending.by !== myRole) return;
-
     if (nopeTimerRef.current) clearTimeout(nopeTimerRef.current);
     const delay = Math.max(0, (nopeWindow.expiresAt || 0) - Date.now());
-    nopeTimerRef.current = setTimeout(() => {
-      resolveNopeWindow(roomId);
-    }, delay + 300);
-
+    nopeTimerRef.current = setTimeout(() => resolveNopeWindow(roomId), delay + 300);
     return () => clearTimeout(nopeTimerRef.current);
   }, [nopeWindow?.expiresAt, nopeWindow?.open, pending?.by, myRole, roomId]);
 
@@ -80,25 +91,25 @@ export default function ExplodingKitten() {
     setTimeout(() => setToast(''), duration);
   }, []);
 
-  const resetToLobby = () => {
+  const resetToLobby = useCallback(() => {
     setScreen('lobby');
     setRoomId('');
     setMyRole('');
     setRoomData(null);
     setErr('');
     setSelectedCards([]);
-  };
+  }, []);
 
-  const handleCreate = async () => {
+  const handleCreate = useCallback(async () => {
     if (!name.trim()) return setErr('Enter your name!');
     setErr('');
     const id = await createRoom(name.trim());
     setRoomId(id);
     setMyRole('player1');
     setScreen('room');
-  };
+  }, [name]);
 
-  const handleJoin = async () => {
+  const handleJoin = useCallback(async () => {
     if (!name.trim()) return setErr('Enter your name!');
     if (!inputRoomId.trim()) return setErr('Enter room code!');
     setErr('');
@@ -110,15 +121,16 @@ export default function ExplodingKitten() {
     } catch (e) {
       setErr(e.message);
     }
-  };
+  }, [name, inputRoomId]);
 
-  const handleStartGame = () => startGame(roomId);
-  const handleDrawCard = () => {
+  const handleStartGame = useCallback(() => startGame(roomId), [roomId]);
+
+  const handleDrawCard = useCallback(() => {
     SoundManager.play('draw');
     drawCard(roomId, myRole);
-  };
+  }, [roomId, myRole]);
 
-  const handleCardClick = (card) => {
+  const handleCardClick = useCallback((card) => {
     SoundManager.play(SoundManager.soundForCard(card.type));
     if (card.type === CARD_TYPES.NOPE) {
       if (!nopeWindow?.open) {
@@ -129,66 +141,64 @@ export default function ExplodingKitten() {
       setSelectedCards([]);
       return;
     }
-
-    if (!myTurn) {
-      showToast('Not your turn!');
-      return;
-    }
-    if (phase !== 'play') {
-      showToast('Finish the current action first!');
-      return;
-    }
+    if (!myTurn) { showToast('Not your turn!'); return; }
+    if (phase !== 'play') { showToast('Finish the current action first!'); return; }
 
     if (CAT_CARD_TYPES.has(card.type)) {
-      const alreadySelected = selectedCards[0];
-      if (alreadySelected?.id === card.id) {
-        setSelectedCards([]);
-        return;
-      }
-      if (alreadySelected?.type === card.type) {
-        playCard(roomId, myRole, alreadySelected.id, { isPair: true });
-        setSelectedCards([]);
-        return;
-      }
-      setSelectedCards([card]);
-      showToast(`Select another ${CARD_META[card.type]?.label} to play as pair`);
+      setSelectedCards(prev => {
+        const alreadySelected = prev[0];
+        if (alreadySelected?.id === card.id) return [];
+        if (alreadySelected?.type === card.type) {
+          playCard(roomId, myRole, alreadySelected.id, { isPair: true });
+          return [];
+        }
+        showToast(`Select another ${CARD_META[card.type]?.label} to play as pair`);
+        return [card];
+      });
       return;
     }
 
-    if (selectedCards[0]?.id === card.id) {
-      setSelectedCards([]);
-    } else {
-      setSelectedCards([card]);
-    }
-  };
+    setSelectedCards(prev => prev[0]?.id === card.id ? [] : [card]);
+  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast]);
 
-  const handlePlaySelected = () => {
+  const handlePlaySelected = useCallback(() => {
     const card = selectedCards[0];
     if (!card) return;
-
     if (CAT_CARD_TYPES.has(card.type)) {
       showToast(`Select another ${CARD_META[card.type]?.label} to play as pair!`);
       return;
     }
-
-    if (card.type === CARD_TYPES.FAVOR) {
-      playCard(roomId, myRole, card.id, {});
-      setSelectedCards([]);
-      return;
-    }
-
     playCard(roomId, myRole, card.id, {});
     setSelectedCards([]);
-  };
+  }, [selectedCards, roomId, myRole, showToast]);
+
+  const handleSelectFavorTarget = useCallback((targetRole) => {
+    update(ref(db, `rooms/${roomId}`), {
+      'game/pendingAction': { ...pending, target: targetRole },
+      'game/phase': 'nope_window',
+      'game/nopeWindow': {
+        open: true,
+        expiresAt: Date.now() + 5000,
+        pendingType: 'favor',
+        isCurrentlyNoped: false,
+      },
+      'game/nopeChain': [],
+    });
+  }, [roomId, pending]);
+
+  const handlePlaceBomb = useCallback((pos) => placeBombAfterDefuse(roomId, myRole, pos), [roomId, myRole]);
+  const handleGiveCard = useCallback((cId) => giveFavorCard(roomId, myRole, cId), [roomId, myRole]);
+  const handleStealCard = useCallback((target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex), [roomId, myRole]);
+  const handleChooseFavorTarget = useCallback((targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole }), [roomId, myRole, pending?.favorCardId]);
+  const handleCloseFuture = useCallback(() => closeSeeTheFuture(roomId), [roomId]);
+  const handleRematch = useCallback(() => requestRematch(roomId, myRole), [roomId, myRole]);
 
   if (screen === 'lobby') {
     return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} name={name} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} />;
   }
-
   if (screen === 'room') {
     return <RoomScreen roomData={roomData} roomId={roomId} myRole={myRole} onStart={handleStartGame} onBack={resetToLobby} />;
   }
-
   if (screen === 'game' && roomData) {
     return (
       <GameBoardScreen
@@ -204,41 +214,28 @@ export default function ExplodingKitten() {
         onCardClick={handleCardClick}
         onPlaySelected={handlePlaySelected}
         onDrawCard={handleDrawCard}
-        onPlaceBomb={(pos) => placeBombAfterDefuse(roomId, myRole, pos)}
-        onGiveCard={(cId) => giveFavorCard(roomId, myRole, cId)}
-        onStealCard={(target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex)}
-        onChooseFavorTarget={(targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole })}
-        onSelectFavorTarget={(targetRole) => {
-          update(ref(db, `rooms/${roomId}`), {
-            'game/pendingAction': { ...pending, target: targetRole },
-            'game/phase': 'nope_window',
-            'game/nopeWindow': {
-              open: true,
-              expiresAt: Date.now() + 5000,
-              pendingType: 'favor',
-              isCurrentlyNoped: false,
-            },
-            'game/nopeChain': [],
-          });
-        }}
-        onCloseFuture={() => closeSeeTheFuture(roomId)}
-        onRematch={() => requestRematch(roomId, myRole)}
+        onPlaceBomb={handlePlaceBomb}
+        onGiveCard={handleGiveCard}
+        onStealCard={handleStealCard}
+        onChooseFavorTarget={handleChooseFavorTarget}
+        onSelectFavorTarget={handleSelectFavorTarget}
+        onCloseFuture={handleCloseFuture}
+        onRematch={handleRematch}
         toast={toast}
         showToast={showToast}
         roomId={roomId}
       />
     );
   }
-
   return <div className="ek-loading">Loading...</div>;
 }
 
 /* ─── LOBBY ─────────────────────────────────────────────────────────── */
-function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, setInputRoomId, err }) {
+const LobbyScreen = memo(function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, setInputRoomId, err }) {
   return (
     <div className="ek-root ek-lobby-root">
       <div className="ek-lobby-sparks" aria-hidden="true">
-        {[...Array(12)].map((_, i) => (
+        {LOBBY_SPARKS.map((_, i) => (
           <div key={i} className={`ek-spark ek-spark-${i % 4}`} style={{ left: `${8 + i * 7.5}%`, animationDelay: `${i * 0.4}s` }} />
         ))}
       </div>
@@ -272,9 +269,7 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
                 onChange={e => setInputRoomId(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && onJoinRoom()}
               />
-              <button className="ek-cta ek-cta-ghost" onClick={onJoinRoom}>
-                Join →
-              </button>
+              <button className="ek-cta ek-cta-ghost" onClick={onJoinRoom}>Join →</button>
             </div>
           </div>
           {err && <div className="ek-err-pill">{err}</div>}
@@ -282,24 +277,20 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
       </div>
     </div>
   );
-}
+});
 
 /* ─── ROOM SCREEN ────────────────────────────────────────────────────── */
-const SLOT_COLORS = ['#FF6B35', '#5DCAA5', '#85B7EB', '#C385EB', '#FFD700', '#FF1493'];
-const SLOT_LABELS = ['HOST', 'P2', 'P3', 'P4', 'P5', 'P6'];
-
 function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
   const [copied, setCopied] = useState(false);
   const players = roomData?.players || {};
   const isHost = myRole === 'player1';
   const playerCount = Object.keys(players).length;
-  const slots = ['player1', 'player2', 'player3', 'player4', 'player5', 'player6'];
 
-  const copyCode = () => {
+  const copyCode = useCallback(() => {
     navigator.clipboard?.writeText(roomId).catch(() => { });
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
-  };
+  }, [roomId]);
 
   return (
     <div className="ek-root ek-room-root">
@@ -311,9 +302,7 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
         </div>
         <div className="ek-room-code-card">
           <p className="ek-room-eyebrow">Share Code with Friends</p>
-          <div className="ek-room-code-display-large" onClick={copyCode} title="Click to copy">
-            {roomId}
-          </div>
+          <div className="ek-room-code-display-large" onClick={copyCode} title="Click to copy">{roomId}</div>
           <p className="ek-code-sub">{copied ? '✓ Copied to clipboard!' : 'Click to copy the room code'}</p>
         </div>
         <div className="ek-players-section">
@@ -321,7 +310,7 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
             <p className="ek-section-label">Players ({playerCount}/6)</p>
           </div>
           <div className="ek-players-grid">
-            {slots.map((slot, i) => {
+            {PLAYER_SLOTS.map((slot, i) => {
               const p = players[slot];
               return (
                 <div
@@ -332,9 +321,7 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
                   <div className="ek-player-slot-indicator">
                     <span className="ek-slot-label">{SLOT_LABELS[i]}</span>
                   </div>
-                  <div className="ek-player-avatar">
-                    {p ? (p.name[0].toUpperCase()) : '?'}
-                  </div>
+                  <div className="ek-player-avatar">{p ? p.name[0].toUpperCase() : '?'}</div>
                   <div className="ek-player-details">
                     <div className="ek-player-name">{p ? p.name : 'Empty Slot'}</div>
                     {p && slot === myRole && <div className="ek-player-you">You</div>}
@@ -371,27 +358,20 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
 }
 
 /* ─── BOMB EXPLOSION EFFECT ─────────────────────────────────────────── */
-function BombExplosionEffect({ onDone }) {
+const BombExplosionEffect = memo(function BombExplosionEffect({ onDone }) {
   useEffect(() => {
     const t = setTimeout(onDone, 2800);
     return () => clearTimeout(t);
   }, [onDone]);
 
-  const particles = [...Array(22)];
-
   return (
     <div className="ek-bomb-overlay" aria-hidden="true">
-      {/* Screen flash */}
       <div className="ek-bomb-flash" />
-
-      {/* Shockwave rings */}
       <div className="ek-bomb-ring ek-bomb-ring-1" />
       <div className="ek-bomb-ring ek-bomb-ring-2" />
       <div className="ek-bomb-ring ek-bomb-ring-3" />
-
-      {/* Fire particles */}
-      {particles.map((_, i) => {
-        const angle = (i / particles.length) * 360;
+      {BOMB_PARTICLES.map((_, i) => {
+        const angle = (i / BOMB_PARTICLES.length) * 360;
         const dist = 100 + (i % 5) * 40;
         const size = 8 + (i % 4) * 6;
         return (
@@ -407,40 +387,26 @@ function BombExplosionEffect({ onDone }) {
           />
         );
       })}
-
-      {/* Central bomb card slam */}
       <div className="ek-bomb-card-slam">
         <div className="ek-bomb-card-inner">
-          <img
-            src="/Resources/exploding kitten/bomb_1.png"
-            alt="Exploding Kitten"
-            onError={e => { e.target.style.display = 'none'; }}
-          />
+          <img src="/Resources/exploding kitten/bomb_1.webp" alt="Exploding Kitten" onError={e => { e.target.style.display = 'none'; }} />
           <div className="ek-bomb-emoji">💥</div>
         </div>
       </div>
-
-      {/* Text burst */}
       <div className="ek-bomb-text">
         <span className="ek-bomb-text-main">BOOM!</span>
         <span className="ek-bomb-text-sub">EXPLODING KITTEN!</span>
       </div>
-
-      {/* Ember particles floating up */}
-      {[...Array(14)].map((_, i) => (
+      {BOMB_EMBERS.map((_, i) => (
         <div
           key={`ember-${i}`}
           className="ek-bomb-ember"
-          style={{
-            '--ex': `${10 + i * 6}%`,
-            '--delay': `${i * 0.08}s`,
-            '--size': `${3 + (i % 3) * 3}px`,
-          }}
+          style={{ '--ex': `${10 + i * 6}%`, '--delay': `${i * 0.08}s`, '--size': `${3 + (i % 3) * 3}px` }}
         />
       ))}
     </div>
   );
-}
+});
 
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
@@ -455,8 +421,6 @@ function GameBoardScreen({
   const topDiscard = discardPile[discardPile.length - 1];
   const log = game?.log || [];
 
-  // ── Card flip animation tracking ──
-  // newCardIds: Set of card IDs currently doing the flip-in animation
   const [newCardIds, setNewCardIds] = useState(new Set());
   const prevHandIdsRef = useRef(new Set());
   const flipTimersRef = useRef({});
@@ -474,15 +438,12 @@ function GameBoardScreen({
   useEffect(() => {
     const currentIds = new Set(myHand.map(c => c.id));
     const added = [...currentIds].filter(id => !prevHandIdsRef.current.has(id));
-
     if (added.length > 0) {
       setNewCardIds(prev => {
         const next = new Set(prev);
         added.forEach(id => next.add(id));
         return next;
       });
-
-      // Remove flip class after animation completes (staggered)
       added.forEach((id, i) => {
         if (flipTimersRef.current[id]) clearTimeout(flipTimersRef.current[id]);
         flipTimersRef.current[id] = setTimeout(() => {
@@ -494,18 +455,13 @@ function GameBoardScreen({
         }, 900 + i * 80);
       });
     }
-
     prevHandIdsRef.current = currentIds;
   }, [myHand]);
 
-  // Cleanup timers on unmount
   useEffect(() => {
-    return () => {
-      Object.values(flipTimersRef.current).forEach(clearTimeout);
-    };
+    return () => { Object.values(flipTimersRef.current).forEach(clearTimeout); };
   }, []);
 
-  // ── Bomb explosion effect ──
   const [showBombFx, setShowBombFx] = useState(false);
   const prevPhaseRef = useRef(phase);
   const prevAliveRef = useRef(true);
@@ -514,12 +470,10 @@ function GameBoardScreen({
     const wasAlive = prevAliveRef.current;
     const isAlive = players[myRole]?.alive !== false;
     const phaseChangedToDefuse = prevPhaseRef.current !== 'defuse' && phase === 'defuse';
-
     if (phaseChangedToDefuse || (wasAlive && !isAlive)) {
       setShowBombFx(true);
       setBombDone(false);
     }
-
     prevPhaseRef.current = phase;
     prevAliveRef.current = isAlive;
   }, [phase, players, myRole]);
@@ -527,21 +481,14 @@ function GameBoardScreen({
   useEffect(() => {
     if (gameOver) {
       SoundManager.play(gameOver === myRole ? 'win' : 'lose');
-      // Nếu bomb chưa được trigger (người thắng), trigger ngay
-      if (bombDone) {
-        setShowBombFx(true);
-        setBombDone(false);
-      }
-      // Nếu bombDone === false, bomb đang chạy rồi, không cần làm gì
+      if (bombDone) { setShowBombFx(true); setBombDone(false); }
     }
   }, [gameOver]);
 
-  // ── Action card fx ──
   const [cardFx, setCardFx] = useState(null);
   const lastFxIdRef = useRef(null);
   const fxTimerRef = useRef(null);
 
-  // ── Draw card animation ──
   const [drawAnim, setDrawAnim] = useState(0);
   const prevDrawCountRef = useRef(drawPile.length);
   const drawTimerRef = useRef(null);
@@ -561,27 +508,30 @@ function GameBoardScreen({
     if (!topDiscard) return;
     if (lastFxIdRef.current === topDiscard.id) return;
     lastFxIdRef.current = topDiscard.id;
-
     const isCat = CAT_CARD_TYPES.has(topDiscard.type);
-    const isActionCard =
-      !isCat &&
-      topDiscard.type !== CARD_TYPES.DEFUSE &&
-      topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN;
+    const isActionCard = !isCat && topDiscard.type !== CARD_TYPES.DEFUSE && topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN;
     if (!isActionCard) return;
-
     setCardFx({ key: topDiscard.id, type: topDiscard.type });
     if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
     fxTimerRef.current = setTimeout(() => setCardFx(null), 1100);
     return () => clearTimeout(fxTimerRef.current);
   }, [topDiscard?.id]);
 
-  const allRoles = ['player1', 'player2', 'player3', 'player4', 'player5'];
-  const otherRoles = allRoles.filter(r => players[r] && r !== myRole);
-  const positionSets = { 1: ['north'], 2: ['northwest', 'northeast'], 3: ['northwest', 'north', 'northeast'], 4: ['west', 'northwest', 'northeast', 'east'] };
-  const posMap = positionSets[otherRoles.length] || ['north'];
+  const otherRoles = ALL_ROLES.filter(r => players[r] && r !== myRole);
+  const posMap = OPP_POSITIONS[otherRoles.length] || ['north'];
 
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
+
+  // Mute toggle callback
+  const handleMuteToggle = useCallback(() => {
+    SoundManager.isMuted() ? SoundManager.unmute() : SoundManager.mute();
+  }, []);
+
+  const handleBombDone = useCallback(() => {
+    setShowBombFx(false);
+    setBombDone(true);
+  }, []);
 
   if (gameOver && bombDone) {
     const winnerPlayer = players[gameOver];
@@ -634,25 +584,15 @@ function GameBoardScreen({
                       src="/Resources/exploding kitten/backcard.webp"
                       alt="Draw pile card back"
                       className="ek-card-back-img"
-                      onError={e => {
-                        e.target.style.display = 'none';
-                        e.target.nextSibling.style.display = 'flex';
-                      }}
+                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                     />
                     <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
                   </div>
-                  {drawPile.length > 0 && (
-                    <div className="ek-pile-count-badge">{drawPile.length}</div>
-                  )}
+                  {drawPile.length > 0 && <div className="ek-pile-count-badge">{drawPile.length}</div>}
                 </div>
                 {drawAnim !== 0 && (
                   <div className="ek-draw-fly" key={drawAnim}>
-                    <img
-                      src="/Resources/exploding kitten/backcard.webp"
-                      alt=""
-                      className="ek-card-back-img"
-                      onError={e => { e.target.style.display = 'none'; }}
-                    />
+                    <img src="/Resources/exploding kitten/backcard.webp" alt="" className="ek-card-back-img" onError={e => { e.target.style.display = 'none'; }} />
                   </div>
                 )}
                 <div className="ek-pile-name">Draw</div>
@@ -670,9 +610,7 @@ function GameBoardScreen({
                     <div className="ek-discard-label">{CARD_META[topDiscard.type]?.label}</div>
                   </div>
                 ) : (
-                  <div className="ek-pile-card ek-pile-empty">
-                    <span className="ek-pile-empty-text">Empty</span>
-                  </div>
+                  <div className="ek-pile-card ek-pile-empty"><span className="ek-pile-empty-text">Empty</span></div>
                 )}
                 <div className="ek-pile-name">Discard</div>
               </div>
@@ -685,20 +623,17 @@ function GameBoardScreen({
                 players={players}
                 canNope={canNope}
                 nopeCard={nopeCard}
-                onNope={() => {
-                  if (nopeCard) onCardClick(nopeCard);
-                }}
+                onNope={() => { if (nopeCard) onCardClick(nopeCard); }}
               />
             )}
 
             {!nopeWindow?.open && (
               <div className={`ek-turn-chip ${myTurn ? 'ek-turn-mine' : 'ek-turn-wait'}`}>
-                {myTurn
-                  ? '🎯 Your Turn — Play or Draw'
-                  : `⏳ ${players[game?.turn]?.name || '…'}'s Turn`}
+                {myTurn ? '🎯 Your Turn — Play or Draw' : `⏳ ${players[game?.turn]?.name || '…'}'s Turn`}
               </div>
             )}
 
+            {/* Only render the last 3 log entries (slice already done) */}
             <div className="ek-log-strip">
               {log.slice(0, 3).map((entry, i) => (
                 <div key={i} className="ek-log-entry">{entry}</div>
@@ -714,10 +649,7 @@ function GameBoardScreen({
             <div className="ek-my-name">{players[myRole]?.name || 'You'}</div>
             <div className="ek-my-cardcount">{myHand.length} cards</div>
             {myTurn && <div className="ek-my-turn-dot" />}
-            <button
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, marginLeft: 'auto', color: 'var(--ek-text-muted)' }}
-              onClick={() => SoundManager.isMuted() ? SoundManager.unmute() : SoundManager.mute()}
-            >
+            <button className="ek-mute-btn" onClick={handleMuteToggle}>
               {SoundManager.isMuted() ? '🔇' : '🔊'}
             </button>
           </div>
@@ -729,34 +661,17 @@ function GameBoardScreen({
               const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
               const isNew = newCardIds.has(card.id);
               return (
-                <div
+                <HandCard
                   key={card.id}
-                  className={`ek-hand-card ${isSelected ? 'ek-hand-card-selected' : ''} ${(!myTurn && !isNopeable) ? 'ek-hand-card-disabled' : ''} ${isNopeable ? 'ek-hand-card-nopeable' : ''} ${isNew ? 'ek-hand-card-new' : ''}`}
-                  style={{ '--card-color': meta?.color || '#888', zIndex: isSelected ? 50 : idx }}
-                  onClick={() => onCardClick(card)}
-                >
-                  {/* Back face (shown during flip-in) */}
-                  <div className="ek-card-face ek-card-face-back">
-                    <img
-                      src="/Resources/exploding kitten/backcard.webp"
-                      alt="card back"
-                      className="ek-card-img"
-                      onError={e => { e.target.style.display = 'none'; }}
-                    />
-                  </div>
-                  {/* Front face */}
-                  <div className="ek-card-face ek-card-face-front">
-                    <img
-                      src={(meta?.images || [])[0] || ''}
-                      alt={meta?.label || card.type}
-                      className="ek-card-img"
-                      onError={e => { e.target.style.display = 'none'; }}
-                    />
-                    <div className="ek-card-label-bar">{meta?.label || card.type}</div>
-                  </div>
-                  {isSelected && <div className="ek-card-selected-glow" />}
-                  {isNopeable && <div className="ek-nope-glow" />}
-                </div>
+                  card={card}
+                  meta={meta}
+                  isSelected={isSelected}
+                  isNopeable={isNopeable}
+                  isNew={isNew}
+                  isDisabled={!myTurn && !isNopeable}
+                  zIndex={isSelected ? 50 : idx}
+                  onClick={onCardClick}
+                />
               );
             }) : (
               <div className="ek-hand-empty">No cards in hand</div>
@@ -771,9 +686,7 @@ function GameBoardScreen({
                   {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
                 </button>
               )}
-              <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>
-                Draw Card
-              </button>
+              <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
             </div>
           )}
         </div>
@@ -792,90 +705,79 @@ function GameBoardScreen({
       )}
       {phase === 'favor_choose_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
-          <FavorChooseTargetPanel
-            players={players}
-            myRole={myRole}
-            onSelect={onSelectFavorTarget}
-          />
+          <FavorChooseTargetPanel players={players} myRole={myRole} onSelect={onSelectFavorTarget} />
         </div>
       )}
       {phase === 'favor_give' && pending?.target === myRole && (
         <div className="ek-overlay-panel">
-          <FavorGivePanel
-            myHand={myHand}
-            requesterName={players[pending?.by]?.name || '?'}
-            onGive={onGiveCard}
-          />
+          <FavorGivePanel myHand={myHand} requesterName={players[pending?.by]?.name || '?'} onGive={onGiveCard} />
         </div>
       )}
       {phase === 'pair_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
-          <PairTargetPanel
-            players={players}
-            myRole={myRole}
-            onSteal={onStealCard}
-          />
+          <PairTargetPanel players={players} myRole={myRole} onSteal={onStealCard} />
         </div>
       )}
 
       {toast && <div className="ek-toast">{toast}</div>}
       {cardFx && <CardPlayEffect key={cardFx.key} type={cardFx.type} />}
-
-      {/* ── Bomb explosion overlay ── */}
-      {showBombFx && (
-        <BombExplosionEffect onDone={() => {
-          setShowBombFx(false);
-          setBombDone(true);
-        }} />
-      )}
+      {showBombFx && <BombExplosionEffect onDone={handleBombDone} />}
     </div>
   );
 }
 
+/* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
+const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick }) {
+  const handleClick = useCallback(() => onClick(card), [onClick, card]);
+  return (
+    <div
+      className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}`}
+      style={{ '--card-color': meta?.color || '#888', zIndex }}
+      onClick={handleClick}
+    >
+      <div className="ek-card-face ek-card-face-back">
+        <img src="/Resources/exploding kitten/backcard.webp" alt="card back" className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
+      </div>
+      <div className="ek-card-face ek-card-face-front">
+        <img src={(meta?.images || [])[0] || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
+        <div className="ek-card-label-bar">{meta?.label || card.type}</div>
+      </div>
+      {isSelected && <div className="ek-card-selected-glow" />}
+      {isNopeable && <div className="ek-nope-glow" />}
+    </div>
+  );
+});
+
 /* ─── CARD PLAY EFFECT ───────────────────────────────────────────────── */
-function CardPlayEffect({ type }) {
+const CardPlayEffect = memo(function CardPlayEffect({ type }) {
   const meta = CARD_META[type];
   const color = meta?.color || '#FF9020';
   const img = (meta?.images || [])[0] || '';
-  const sparks = [...Array(10)];
   return (
     <div className="ek-fx-layer" style={{ '--fx-color': color }} aria-hidden="true">
       <div className="ek-fx-ring" />
       <div className="ek-fx-ring ek-fx-ring-2" />
-      {sparks.map((_, i) => {
-        const angle = (i / sparks.length) * Math.PI * 2;
+      {[...Array(10)].map((_, i) => {
+        const angle = (i / 10) * Math.PI * 2;
         const dist = 120 + (i % 3) * 36;
         return (
-          <span
-            key={i}
-            className="ek-fx-spark"
-            style={{
-              '--sx': `${Math.cos(angle) * dist}px`,
-              '--sy': `${Math.sin(angle) * dist}px`,
-              animationDelay: `${0.15 + (i % 4) * 0.03}s`,
-            }}
-          />
+          <span key={i} className="ek-fx-spark" style={{ '--sx': `${Math.cos(angle) * dist}px`, '--sy': `${Math.sin(angle) * dist}px`, animationDelay: `${0.15 + (i % 4) * 0.03}s` }} />
         );
       })}
       <div className="ek-fx-card">
-        {img && (
-          <img
-            src={img}
-            alt={meta?.label || type}
-            onError={e => { e.target.style.display = 'none'; }}
-          />
-        )}
+        {img && <img src={img} alt={meta?.label || type} onError={e => { e.target.style.display = 'none'; }} />}
       </div>
       <div className="ek-fx-label">{meta?.label || type}</div>
     </div>
   );
-}
+});
 
 /* ─── NOPE WINDOW BANNER ─────────────────────────────────────────────── */
-function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onNope }) {
+const NopeWindowBanner = memo(function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onNope }) {
   const [timeLeft, setTimeLeft] = useState(5);
 
   useEffect(() => {
+    // Only run interval when banner is visible
     const tick = () => {
       const left = Math.max(0, Math.ceil((nopeWindow.expiresAt - Date.now()) / 1000));
       setTimeLeft(left);
@@ -886,15 +788,7 @@ function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onN
   }, [nopeWindow.expiresAt]);
 
   const byName = pending?.by ? players[pending.by]?.name : '?';
-  const actionLabel = {
-    attack: 'Attack',
-    skip: 'Skip',
-    favor: 'Favor',
-    shuffle: 'Shuffle',
-    see_the_future: 'See the Future',
-    pair: 'Cat Pair steal',
-  }[nopeWindow.pendingType] || nopeWindow.pendingType;
-
+  const actionLabel = ACTION_LABEL_MAP[nopeWindow.pendingType] || nopeWindow.pendingType;
   const isNoped = nopeWindow.isCurrentlyNoped;
 
   return (
@@ -907,21 +801,18 @@ function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onN
         </div>
         <div className="ek-nope-timer">{timeLeft}s</div>
       </div>
-      {canNope && (
-        <button className="ek-nope-btn" onClick={onNope}>
-          🚫 Nope it!
-        </button>
+      {canNope ? (
+        <button className="ek-nope-btn" onClick={onNope}>🚫 Nope it!</button>
+      ) : (
+        <div className="ek-nope-wait">Waiting for Nope…</div>
       )}
-      {!canNope && <div className="ek-nope-wait">Waiting for Nope…</div>}
     </div>
   );
-}
+});
 
 /* ─── FAVOR CHOOSE TARGET PANEL ─────────────────────────────────────── */
-function FavorChooseTargetPanel({ players, myRole, onSelect }) {
-  const targets = Object.entries(players).filter(
-    ([role, p]) => role !== myRole && p?.alive !== false
-  );
+const FavorChooseTargetPanel = memo(function FavorChooseTargetPanel({ players, myRole, onSelect }) {
+  const targets = Object.entries(players).filter(([role, p]) => role !== myRole && p?.alive !== false);
   return (
     <div className="ek-panel-inner">
       <div className="ek-panel-icon">🤲</div>
@@ -938,10 +829,10 @@ function FavorChooseTargetPanel({ players, myRole, onSelect }) {
       </div>
     </div>
   );
-}
+});
 
 /* ─── FAVOR GIVE PANEL ───────────────────────────────────────────────── */
-function FavorGivePanel({ myHand, requesterName, onGive }) {
+const FavorGivePanel = memo(function FavorGivePanel({ myHand, requesterName, onGive }) {
   return (
     <div className="ek-panel-inner">
       <div className="ek-panel-icon">🎁</div>
@@ -952,12 +843,7 @@ function FavorGivePanel({ myHand, requesterName, onGive }) {
           const meta = CARD_META[card.type];
           return (
             <div key={card.id} className="ek-favor-card" onClick={() => onGive(card.id)}>
-              <img
-                src={(meta?.images || [])[0] || ''}
-                alt={meta?.label || card.type}
-                className="ek-card-img"
-                onError={e => { e.target.style.display = 'none'; }}
-              />
+              <img src={(meta?.images || [])[0] || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
               <div className="ek-card-label-bar">{meta?.label || card.type}</div>
             </div>
           );
@@ -965,16 +851,13 @@ function FavorGivePanel({ myHand, requesterName, onGive }) {
       </div>
     </div>
   );
-}
+});
 
 /* ─── PAIR TARGET PANEL ──────────────────────────────────────────────── */
 function PairTargetPanel({ players, myRole, onSteal }) {
   const [chosenTarget, setChosenTarget] = useState(null);
   const [hoverIdx, setHoverIdx] = useState(null);
-
-  const targets = Object.entries(players).filter(
-    ([role, p]) => role !== myRole && p?.alive !== false
-  );
+  const targets = Object.entries(players).filter(([role, p]) => role !== myRole && p?.alive !== false);
 
   if (chosenTarget) {
     const targetPlayer = players[chosenTarget];
@@ -983,37 +866,25 @@ function PairTargetPanel({ players, myRole, onSteal }) {
       <div className="ek-panel-inner">
         <div className="ek-panel-icon">🃏</div>
         <h3 className="ek-panel-title">Pick a card to steal</h3>
-        <p className="ek-panel-sub">
-          From {targetPlayer?.name} — cards stay face-down. Choose by position.
-        </p>
+        <p className="ek-panel-sub">From {targetPlayer?.name} — cards stay face-down. Choose by position.</p>
         <div className="ek-steal-grid">
           {[...Array(handCount)].map((_, i) => (
             <button
               key={i}
-              className={`ek-steal-card ${hoverIdx === i ? 'ek-steal-card-hover' : ''}`}
+              className={`ek-steal-card${hoverIdx === i ? ' ek-steal-card-hover' : ''}`}
               style={{ animationDelay: `${i * 0.05}s` }}
               onMouseEnter={() => setHoverIdx(i)}
               onMouseLeave={() => setHoverIdx(null)}
               onClick={() => onSteal(chosenTarget, i)}
             >
               <div className="ek-steal-card-back">
-                <img
-                  src="/Resources/exploding kitten/backcard.webp"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }}
-                />
+                <img src="/Resources/exploding kitten/backcard.webp" alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
               </div>
               <div className="ek-steal-card-num">#{i + 1}</div>
             </button>
           ))}
         </div>
-        <button
-          className="ek-action-btn ek-action-draw"
-          style={{ width: '100%', marginTop: 14 }}
-          onClick={() => setChosenTarget(null)}
-        >
+        <button className="ek-action-btn ek-action-draw" style={{ width: '100%', marginTop: 14 }} onClick={() => setChosenTarget(null)}>
           ← Back to players
         </button>
       </div>
@@ -1027,12 +898,7 @@ function PairTargetPanel({ players, myRole, onSteal }) {
       <p className="ek-panel-sub">Choose a player, then pick a specific face-down card</p>
       <div className="ek-target-list">
         {targets.map(([role, p]) => (
-          <button
-            key={role}
-            className="ek-target-btn"
-            onClick={() => setChosenTarget(role)}
-            disabled={!p.hand || p.hand.length === 0}
-          >
+          <button key={role} className="ek-target-btn" onClick={() => setChosenTarget(role)} disabled={!p.hand || p.hand.length === 0}>
             <span className="ek-target-avatar">{p.name[0]}</span>
             <div className="ek-opp-mini-cards">
               {[...Array(Math.min(p.hand?.length || 0, 5))].map((_, i) => (
@@ -1051,10 +917,11 @@ function PairTargetPanel({ players, myRole, onSteal }) {
 }
 
 /* ─── OPPONENT SLOT ──────────────────────────────────────────────────── */
-function OpponentSlot({ player, role, position, isActive, isDead }) {
+const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActive, isDead }) {
   const hand = player?.hand || [];
+  const displayCount = Math.min(hand.length, 7);
   return (
-    <div className={`ek-opponent ek-opp-${position} ${isActive ? 'ek-opponent-active' : ''} ${isDead ? 'ek-opponent-dead' : ''}`}>
+    <div className={`ek-opponent ek-opp-${position}${isActive ? ' ek-opponent-active' : ''}${isDead ? ' ek-opponent-dead' : ''}`}>
       <div className="ek-opp-info">
         <div className="ek-opp-avatar">{player?.name?.[0] || '?'}</div>
         <div>
@@ -1063,20 +930,9 @@ function OpponentSlot({ player, role, position, isActive, isDead }) {
         </div>
       </div>
       <div className="ek-opp-hand">
-        {[...Array(Math.min(hand.length, 7))].map((_, i) => (
-          <div
-            key={i}
-            className="ek-opp-card"
-            style={{
-              transform: `rotate(${(i - Math.min(hand.length, 7) / 2) * 8}deg)`
-            }}
-          >
-            <img
-              src="/Resources/exploding kitten/backcard.webp"
-              alt="Card Back"
-              className="ek-opp-card-img"
-              draggable={false}
-            />
+        {[...Array(displayCount)].map((_, i) => (
+          <div key={i} className="ek-opp-card" style={{ transform: `rotate(${(i - displayCount / 2) * 8}deg)` }}>
+            <img src="/Resources/exploding kitten/backcard.webp" alt="Card Back" className="ek-opp-card-img" draggable={false} />
           </div>
         ))}
       </div>
@@ -1084,32 +940,33 @@ function OpponentSlot({ player, role, position, isActive, isDead }) {
       {isDead && <div className="ek-opp-dead-mark">💥</div>}
     </div>
   );
-}
+}, (prev, next) => {
+  // Custom comparator: only re-render when relevant props change
+  return prev.isActive === next.isActive
+    && prev.isDead === next.isDead
+    && prev.position === next.position
+    && (prev.player?.hand?.length === next.player?.hand?.length)
+    && (prev.player?.name === next.player?.name);
+});
 
 /* ─── DEFUSE PANEL ───────────────────────────────────────────────────── */
-function DefusePanel({ drawPile, onPlaceBomb }) {
+const DefusePanel = memo(function DefusePanel({ drawPile, onPlaceBomb }) {
   const [pos, setPos] = useState(Math.floor(drawPile.length / 2));
   return (
     <div className="ek-panel-inner">
       <div className="ek-panel-icon">💣</div>
       <h3 className="ek-panel-title">Place bomb at position {pos}</h3>
-      <input
-        type="range" min="0" max={drawPile.length} value={pos}
-        onChange={e => setPos(Number(e.target.value))}
-        className="ek-range"
-      />
-      <div className="ek-range-labels">
-        <span>Top</span><span>Bottom</span>
-      </div>
+      <input type="range" min="0" max={drawPile.length} value={pos} onChange={e => setPos(Number(e.target.value))} className="ek-range" />
+      <div className="ek-range-labels"><span>Top</span><span>Bottom</span></div>
       <button className="ek-action-btn ek-action-play" style={{ width: '100%', marginTop: 12 }} onClick={() => onPlaceBomb(pos)}>
         Insert Bomb
       </button>
     </div>
   );
-}
+});
 
 /* ─── SEE THE FUTURE PANEL ───────────────────────────────────────────── */
-function SeeFuturePanel({ cards, onClose }) {
+const SeeFuturePanel = memo(function SeeFuturePanel({ cards, onClose }) {
   return (
     <div className="ek-panel-inner ek-panel-wide">
       <div className="ek-panel-icon">🔮</div>
@@ -1126,12 +983,10 @@ function SeeFuturePanel({ cards, onClose }) {
           );
         })}
       </div>
-      <button className="ek-action-btn ek-action-draw" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>
-        Got it
-      </button>
+      <button className="ek-action-btn ek-action-draw" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>Got it</button>
     </div>
   );
-}
+});
 
 /* ─── STYLES ─────────────────────────────────────────────────────────── */
 function getStyles() {
@@ -1175,6 +1030,14 @@ function getStyles() {
       font-size: 20px; color: var(--ek-ember);
       font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px;
     }
+
+    /* ── Mute button (replaces inline style) ── */
+    .ek-mute-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 18px; margin-left: auto; color: var(--ek-text-muted);
+      padding: 4px; line-height: 1;
+    }
+    .ek-mute-btn:hover { color: var(--ek-text); }
 
     /* ══ LOBBY ══ */
     .ek-lobby-root {
@@ -1376,99 +1239,82 @@ function getStyles() {
     .ek-steal-card:hover, .ek-steal-card-hover { transform: translateY(-10px) scale(1.07); }
     .ek-steal-card-back { width: 100%; height: 100%; border-radius: 10px; background: linear-gradient(160deg, #3d1200, #1a0800); border: 2px solid rgba(255,144,32,0.35); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: border-color .18s, box-shadow .18s; }
     .ek-steal-card:hover .ek-steal-card-back, .ek-steal-card-hover .ek-steal-card-back { border-color: var(--ek-ember); box-shadow: 0 8px 22px rgba(255,90,31,0.45), 0 0 0 2px var(--ek-ember); }
-    .ek-steal-card-icon { font-size: 26px; opacity: 0.5; }
-    .ek-steal-card-q { font-family: 'Bebas Neue', sans-serif; font-size: 22px; color: rgba(255,144,32,0.7); letter-spacing: 1px; }
     .ek-steal-card-num { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.55); }
 
     /* ══ CARD FLIP ANIMATION ══ */
-    /*
-      Cards use a 3D flip: back face visible first (rotateY 0),
-      then flips to reveal front face (rotateY 180).
-      The card container preserves-3d, each face is absolutely positioned.
-      When .ek-hand-card-new is present, it starts showing the back, then flips.
-    */
-      .ek-hand-card {
-        width: var(--ek-card-w);
-        height: var(--ek-card-h);
-        border-radius: 12px;
-        border: 2px solid rgba(255,255,255,0.1);
-        flex-shrink: 0;
-        cursor: pointer;
-        position: relative;
-        /* KHÔNG có perspective / transform-style: preserve-3d */
-        transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
-      }
+    .ek-hand-card {
+      width: var(--ek-card-w);
+      height: var(--ek-card-h);
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+      cursor: pointer;
+      position: relative;
+      transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
+      /* GPU compositing hint for animated cards */
+      will-change: transform;
+    }
 
-      .ek-card-face {
-        position: absolute; inset: 0;
-        border-radius: 10px; overflow: hidden;
-      }
+    .ek-card-face {
+      position: absolute; inset: 0;
+      border-radius: 10px; overflow: hidden;
+    }
 
-      /* Mặc định: chỉ hiện front face */
-      .ek-card-face-back  { display: none; }
-      .ek-card-face-front { display: block; z-index: 1; }
+    .ek-card-face-back  { display: none; }
+    .ek-card-face-front { display: block; z-index: 1; }
 
-      /* Khi là card mới: back face hiện, front ẩn ban đầu */
-      .ek-hand-card.ek-hand-card-new .ek-card-face-back {
-        display: block;
-        z-index: 2;
-        animation: faceHide 0.75s forwards;
-      }
-      .ek-hand-card.ek-hand-card-new .ek-card-face-front {
-        display: block;
-        z-index: 3;
-        animation: faceReveal 0.75s forwards;
-      }
+    .ek-hand-card.ek-hand-card-new .ek-card-face-back {
+      display: block; z-index: 2;
+      animation: faceHide 0.75s forwards;
+    }
+    .ek-hand-card.ek-hand-card-new .ek-card-face-front {
+      display: block; z-index: 3;
+      animation: faceReveal 0.75s forwards;
+    }
 
-      /* Card container chỉ bay vào, KHÔNG rotate */
-      .ek-hand-card.ek-hand-card-new {
-        animation: cardSlideIn 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-      }
+    .ek-hand-card.ek-hand-card-new {
+      animation: cardSlideIn 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
 
-      @keyframes cardSlideIn {
-        0%   { transform: translateY(40px) scale(0.8); opacity: 0; }
-        60%  { transform: translateY(-8px) scale(1.08); opacity: 1; }
-        100% { transform: translateY(0px)  scale(1);   opacity: 1; }
-      }
+    @keyframes cardSlideIn {
+      0%   { transform: translateY(40px) scale(0.8); opacity: 0; }
+      60%  { transform: translateY(-8px) scale(1.08); opacity: 1; }
+      100% { transform: translateY(0px) scale(1); opacity: 1; }
+    }
 
-      /* Back face: scaleX 1→0 (nửa đầu animation = "gấp vào") */
-      @keyframes faceHide {
-        0%   { transform: scaleX(1); opacity: 1; }
-        40%  { transform: scaleX(0); opacity: 1; }
-        41%  { transform: scaleX(0); opacity: 0; }
-        100% { transform: scaleX(0); opacity: 0; }
-      }
+    @keyframes faceHide {
+      0%  { transform: scaleX(1); opacity: 1; }
+      40% { transform: scaleX(0); opacity: 1; }
+      41% { transform: scaleX(0); opacity: 0; }
+      100%{ transform: scaleX(0); opacity: 0; }
+    }
 
-      /* Front face: scaleX 0→1 (nửa sau animation = "mở ra") */
-      @keyframes faceReveal {
-        0%   { transform: scaleX(0); opacity: 0; }
-        40%  { transform: scaleX(0); opacity: 0; }
-        41%  { transform: scaleX(0); opacity: 1; }
-        100% { transform: scaleX(1); opacity: 1; }
-      }
+    @keyframes faceReveal {
+      0%  { transform: scaleX(0); opacity: 0; }
+      40% { transform: scaleX(0); opacity: 0; }
+      41% { transform: scaleX(0); opacity: 1; }
+      100%{ transform: scaleX(1); opacity: 1; }
+    }
 
-      /* Hover / selected (chỉ cho card không đang animate) */
-      .ek-hand-card:hover:not(.ek-hand-card-disabled):not(.ek-hand-card-new) {
-        transform: translateY(-14px) scale(1.06);
-        border-color: var(--card-color, var(--ek-ember));
-        box-shadow: 0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px var(--card-color, var(--ek-ember));
-      }
-      .ek-hand-card-selected:not(.ek-hand-card-new) {
-        transform: translateY(-22px) scale(1.08) !important;
-        border-color: var(--card-color, var(--ek-fire)) !important;
-        box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 16px 36px rgba(255,90,31,0.45) !important;
-      }
-      .ek-hand-card-disabled { opacity: 0.55; cursor: default; }
-      .ek-hand-card-nopeable {
-        opacity: 1 !important; cursor: pointer !important;
-        border-color: rgba(255,50,50,0.6) !important;
-        box-shadow: 0 0 14px rgba(255,50,50,0.5), 0 0 0 2px rgba(255,50,50,0.4) !important;
-        animation: nopePulse .8s ease-in-out infinite alternate;
-      }
-      .ek-card-selected-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0.12) 0%, transparent 70%); pointer-events: none; z-index: 10; }
-      .ek-nope-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,50,50,0.25) 0%, transparent 70%); pointer-events: none; z-index: 10; }
-      .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; z-index: 5; }
-      .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
+    .ek-hand-card:hover:not(.ek-hand-card-disabled):not(.ek-hand-card-new) {
+      transform: translateY(-14px) scale(1.06);
+      border-color: var(--card-color, var(--ek-ember));
+      box-shadow: 0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px var(--card-color, var(--ek-ember));
+    }
+    .ek-hand-card-selected:not(.ek-hand-card-new) {
+      transform: translateY(-22px) scale(1.08) !important;
+      border-color: var(--card-color, var(--ek-fire)) !important;
+      box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 16px 36px rgba(255,90,31,0.45) !important;
+    }
+    .ek-hand-card-disabled { opacity: 0.55; cursor: default; }
+    .ek-hand-card-nopeable {
+      opacity: 1 !important; cursor: pointer !important;
+      border-color: rgba(255,50,50,0.6) !important;
+      box-shadow: 0 0 14px rgba(255,50,50,0.5), 0 0 0 2px rgba(255,50,50,0.4) !important;
+      animation: nopePulse .8s ease-in-out infinite alternate;
+    }
+    .ek-card-selected-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0.12) 0%, transparent 70%); pointer-events: none; z-index: 10; }
+    .ek-nope-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,50,50,0.25) 0%, transparent 70%); pointer-events: none; z-index: 10; }
     .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; z-index: 5; }
     .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
@@ -1521,8 +1367,9 @@ function getStyles() {
       position: fixed; inset: 0; z-index: 300;
       display: flex; align-items: center; justify-content: center;
       pointer-events: none;
-      /* Screen shake */
       animation: bombShake 0.55s cubic-bezier(.36,.07,.19,.97) forwards;
+      /* Promote to own compositor layer */
+      will-change: transform;
     }
     @keyframes bombShake {
       0%  { transform: translate(0,0) rotate(0deg); }
@@ -1534,45 +1381,26 @@ function getStyles() {
       60% { transform: translate(4px, -3px) rotate(.5deg); }
       70% { transform: translate(-3px, 2px) rotate(-.2deg); }
       80% { transform: translate(2px, -1px) rotate(.1deg); }
-      100% { transform: translate(0,0) rotate(0deg); }
+      100%{ transform: translate(0,0) rotate(0deg); }
     }
 
-    /* Screen white flash */
     .ek-bomb-flash {
       position: absolute; inset: 0;
       background: radial-gradient(ellipse at center, rgba(255,230,100,0.95) 0%, rgba(255,80,0,0.7) 40%, transparent 70%);
       animation: bombFlash 0.7s ease-out forwards;
       z-index: 1;
     }
-    @keyframes bombFlash {
-      0%   { opacity: 0; }
-      8%   { opacity: 1; }
-      35%  { opacity: 0.6; }
-      100% { opacity: 0; }
-    }
+    @keyframes bombFlash { 0% { opacity: 0; } 8% { opacity: 1; } 35% { opacity: 0.6; } 100% { opacity: 0; } }
 
-    /* Shockwave rings */
-    .ek-bomb-ring {
-      position: absolute;
-      border-radius: 50%;
-      border: 4px solid rgba(255, 140, 0, 0.8);
-      z-index: 4; pointer-events: none;
-      animation: bombRingExpand 0.9s cubic-bezier(0.1, 0.5, 0.3, 1) forwards;
-    }
+    .ek-bomb-ring { position: absolute; border-radius: 50%; border: 4px solid rgba(255, 140, 0, 0.8); z-index: 4; pointer-events: none; animation: bombRingExpand 0.9s cubic-bezier(0.1, 0.5, 0.3, 1) forwards; }
     .ek-bomb-ring-1 { width: 60px; height: 60px; animation-delay: 0.05s; border-color: rgba(255, 220, 50, 0.9); border-width: 5px; }
     .ek-bomb-ring-2 { width: 60px; height: 60px; animation-delay: 0.18s; border-color: rgba(255, 100, 0, 0.7); border-width: 3px; }
     .ek-bomb-ring-3 { width: 60px; height: 60px; animation-delay: 0.33s; border-color: rgba(255, 50, 0, 0.5); border-width: 2px; }
-    @keyframes bombRingExpand {
-      0%   { opacity: 1; transform: scale(0.1); }
-      60%  { opacity: 0.7; }
-      100% { opacity: 0; transform: scale(8); }
-    }
+    @keyframes bombRingExpand { 0% { opacity: 1; transform: scale(0.1); } 60% { opacity: 0.7; } 100% { opacity: 0; transform: scale(8); } }
 
-    /* Fire/ember particles */
     .ek-bomb-particle {
       position: absolute;
-      width: var(--size, 10px);
-      height: var(--size, 10px);
+      width: var(--size, 10px); height: var(--size, 10px);
       border-radius: 50%;
       background: radial-gradient(circle, #fff7a0, #ff6600, #cc2200);
       box-shadow: 0 0 8px #ff4400, 0 0 20px #ff2200;
@@ -1580,25 +1408,11 @@ function getStyles() {
       animation: bombParticle 0.95s cubic-bezier(0.1, 0.8, 0.3, 1) var(--delay, 0s) forwards;
     }
     @keyframes bombParticle {
-      0%  {
-        opacity: 1;
-        transform: translate(0, 0) scale(1);
-      }
-      100% {
-        opacity: 0;
-        transform:
-          rotate(var(--angle))
-          translateX(var(--dist))
-          scale(0.3);
-      }
+      0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+      100% { opacity: 0; transform: rotate(var(--angle)) translateX(var(--dist)) scale(0.3); }
     }
 
-    /* Central bomb card slam */
-    .ek-bomb-card-slam {
-      position: relative;
-      z-index: 8;
-      animation: bombCardSlam 2.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-    }
+    .ek-bomb-card-slam { position: relative; z-index: 8; animation: bombCardSlam 2.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     @keyframes bombCardSlam {
       0%   { transform: scale(0) rotate(-20deg); opacity: 0; }
       12%  { transform: scale(1.5) rotate(5deg); opacity: 1; }
@@ -1608,39 +1422,12 @@ function getStyles() {
       80%  { transform: scale(1.25) rotate(0deg); opacity: 1; }
       100% { transform: scale(0.8) rotate(-5deg); opacity: 0; }
     }
-    .ek-bomb-card-inner {
-      width: 160px; height: 224px;
-      border-radius: 16px; overflow: hidden;
-      border: 3px solid #ff4400;
-      box-shadow:
-        0 0 0 2px #ff8800,
-        0 0 40px #ff4400,
-        0 0 80px rgba(255,68,0,0.6),
-        0 24px 60px rgba(0,0,0,0.8);
-      position: relative;
-    }
+    .ek-bomb-card-inner { width: 160px; height: 224px; border-radius: 16px; overflow: hidden; border: 3px solid #ff4400; box-shadow: 0 0 0 2px #ff8800, 0 0 40px #ff4400, 0 0 80px rgba(255,68,0,0.6), 0 24px 60px rgba(0,0,0,0.8); position: relative; }
     .ek-bomb-card-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .ek-bomb-emoji {
-      position: absolute; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 72px;
-      background: rgba(0,0,0,0.4);
-      animation: bombEmojiPulse 0.4s ease-in-out 0.12s 3 alternate;
-    }
-    @keyframes bombEmojiPulse {
-      from { transform: scale(1); filter: brightness(1); }
-      to   { transform: scale(1.2); filter: brightness(1.5); }
-    }
+    .ek-bomb-emoji { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 72px; background: rgba(0,0,0,0.4); animation: bombEmojiPulse 0.4s ease-in-out 0.12s 3 alternate; }
+    @keyframes bombEmojiPulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.2); filter: brightness(1.5); } }
 
-    /* Text burst */
-    .ek-bomb-text {
-      position: absolute;
-      z-index: 9;
-      top: 14%;
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      animation: bombTextBurst 2.5s ease forwards;
-      pointer-events: none;
-    }
+    .ek-bomb-text { position: absolute; z-index: 9; top: 14%; display: flex; flex-direction: column; align-items: center; gap: 4px; animation: bombTextBurst 2.5s ease forwards; pointer-events: none; }
     @keyframes bombTextBurst {
       0%   { opacity: 0; transform: scale(0.3) translateY(20px); }
       18%  { opacity: 1; transform: scale(1.15) translateY(-4px); }
@@ -1648,44 +1435,14 @@ function getStyles() {
       72%  { opacity: 1; }
       100% { opacity: 0; transform: scale(0.9) translateY(-20px); }
     }
-    .ek-bomb-text-main {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: clamp(64px, 15vw, 96px);
-      letter-spacing: 6px;
-      color: #fff;
-      text-shadow:
-        0 0 20px #ff4400,
-        0 0 40px #ff2200,
-        0 0 80px #ff0000,
-        4px 4px 0 #8b0000,
-        -4px -4px 0 #cc2200;
-      line-height: 1;
-    }
-    .ek-bomb-text-sub {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: clamp(16px, 4vw, 22px);
-      letter-spacing: 4px;
-      color: #ff9933;
-      text-shadow: 0 0 12px #ff4400;
-    }
+    .ek-bomb-text-main { font-family: 'Bebas Neue', sans-serif; font-size: clamp(64px, 15vw, 96px); letter-spacing: 6px; color: #fff; text-shadow: 0 0 20px #ff4400, 0 0 40px #ff2200, 0 0 80px #ff0000, 4px 4px 0 #8b0000, -4px -4px 0 #cc2200; line-height: 1; }
+    .ek-bomb-text-sub { font-family: 'Bebas Neue', sans-serif; font-size: clamp(16px, 4vw, 22px); letter-spacing: 4px; color: #ff9933; text-shadow: 0 0 12px #ff4400; }
 
-    /* Floating embers */
-    .ek-bomb-ember {
-      position: absolute;
-      bottom: 0;
-      left: var(--ex, 50%);
-      width: var(--size, 4px);
-      height: var(--size, 4px);
-      border-radius: 50%;
-      background: radial-gradient(circle, #ffee88, #ff6600);
-      box-shadow: 0 0 6px #ff4400;
-      z-index: 6;
-      animation: emberFloat 1.8s ease-out var(--delay, 0s) forwards;
-    }
+    .ek-bomb-ember { position: absolute; bottom: 0; left: var(--ex, 50%); width: var(--size, 4px); height: var(--size, 4px); border-radius: 50%; background: radial-gradient(circle, #ffee88, #ff6600); box-shadow: 0 0 6px #ff4400; z-index: 6; animation: emberFloat 1.8s ease-out var(--delay, 0s) forwards; }
     @keyframes emberFloat {
       0%   { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
-      40%  { opacity: 0.9; transform: translateY(-40vh) translateX(calc(sin(var(--delay, 0s) * 50) * 30px)) scale(0.8); }
-      100% { opacity: 0; transform: translateY(-80vh) translateX(calc(sin(var(--delay, 0s) * 50) * 60px)) scale(0.3); }
+      40%  { opacity: 0.9; }
+      100% { opacity: 0; transform: translateY(-80vh) scale(0.3); }
     }
 
     .ek-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: linear-gradient(120deg, #c02800, var(--ek-fire)); color: #fff; padding: 11px 22px; border-radius: 24px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 20px rgba(255,90,31,0.4); z-index: 999; animation: toastIn .25s ease; pointer-events: none; }
@@ -1697,6 +1454,15 @@ function getStyles() {
     @keyframes burstIn { from { transform: scale(0.2) rotate(-20deg); opacity: 0; } to { transform: scale(1) rotate(0deg); opacity: 1; } }
     .ek-gameover-name { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; background: linear-gradient(120deg, var(--ek-fire), var(--ek-gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .ek-gameover-sub { font-size: 13px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 28px; }
+
+    /* ── Reduced motion support ── */
+    @media (prefers-reduced-motion: reduce) {
+      .ek-spark, .ek-brand-icon, .ek-opp-pulse, .ek-my-turn-dot,
+      .ek-turn-mine, .ek-hand-card-nopeable, .ek-nope-btn,
+      .ek-bomb-overlay, .ek-draw-fly, .ek-fx-layer { animation: none !important; }
+      .ek-hand-card, .ek-favor-card, .ek-steal-card,
+      .ek-pile-card, .ek-target-btn { transition: none !important; }
+    }
 
     @media (max-width: 600px) {
       :root { --ek-card-w: 84px; --ek-card-h: 118px; --ek-pile-w: 72px; --ek-pile-h: 101px; }

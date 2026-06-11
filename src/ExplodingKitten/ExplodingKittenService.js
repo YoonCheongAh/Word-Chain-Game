@@ -46,9 +46,9 @@ export const CARD_META = {
     label: "Exploding Kitten",
     desc: "Nổ tung! Dùng Defuse để thoát.",
     images: [
-      "/Resources/exploding kitten/bomb_1.png",
-      "/Resources/exploding kitten/bomb_2.png",
-      "/Resources/exploding kitten/bomb_3.png",
+      "/Resources/exploding kitten/bomb_1.webp",
+      "/Resources/exploding kitten/bomb_2.webp",
+      "/Resources/exploding kitten/bomb_3.webp",
     ],
     color: "#ff4444",
     bg: "#3d0a0a",
@@ -57,8 +57,8 @@ export const CARD_META = {
     label: "Defuse",
     desc: "Ngăn Exploding Kitten. Cắm lại bom vào bài.",
     images: [
-      "/Resources/exploding kitten/defuse_1.png",
-      "/Resources/exploding kitten/defuse_2.png",
+      "/Resources/exploding kitten/defuse_1.webp",
+      "/Resources/exploding kitten/defuse_2.webp",
     ],
     color: "#00e5a0",
     bg: "#0c2c20",
@@ -67,8 +67,8 @@ export const CARD_META = {
     label: "Attack",
     desc: "Kết thúc lượt. Người tiếp theo chơi 2 lượt.",
     images: [
-      "/Resources/exploding kitten/attack_1.png",
-      "/Resources/exploding kitten/attack_2.png",
+      "/Resources/exploding kitten/attack_1.webp",
+      "/Resources/exploding kitten/attack_2.webp",
     ],
     color: "#ff8844",
     bg: "#3d1a00",
@@ -76,7 +76,7 @@ export const CARD_META = {
   [CARD_TYPES.SKIP]: {
     label: "Skip",
     desc: "Kết thúc lượt mà không cần rút bài.",
-    images: ["/Resources/exploding kitten/skip_1.png"],
+    images: ["/Resources/exploding kitten/skip_1.webp"],
     color: "#64d96a",
     bg: "#0c2c14",
   },
@@ -84,8 +84,8 @@ export const CARD_META = {
     label: "Favor",
     desc: "Ép người khác cho bạn 1 lá bài.",
     images: [
-      "/Resources/exploding kitten/favor_1.png",
-      "/Resources/exploding kitten/favor_2.png",
+      "/Resources/exploding kitten/favor_1.webp",
+      "/Resources/exploding kitten/favor_2.webp",
     ],
     color: "#f0c040",
     bg: "#2c2000",
@@ -93,7 +93,7 @@ export const CARD_META = {
   [CARD_TYPES.SHUFFLE]: {
     label: "Shuffle",
     desc: "Xáo trộn toàn bộ bài rút.",
-    images: ["/Resources/exploding kitten/shuffle_1.png"],
+    images: ["/Resources/exploding kitten/shuffle_1.webp"],
     color: "#aa88ff",
     bg: "#1a0c3d",
   },
@@ -101,8 +101,8 @@ export const CARD_META = {
     label: "See The Future",
     desc: "Nhìn trộm 3 lá bài trên đỉnh.",
     images: [
-      "/Resources/exploding kitten/see-the-future_1.png",
-      "/Resources/exploding kitten/see-the-future-2.png",
+      "/Resources/exploding kitten/see-the-future_1.webp",
+      "/Resources/exploding kitten/see-the-future-2.webp",
     ],
     color: "#5ab4ff",
     bg: "#0c1e38",
@@ -111,8 +111,8 @@ export const CARD_META = {
     label: "Nope",
     desc: "Hủy bất kỳ thẻ nào (trừ Bomb/Defuse).",
     images: [
-      "/Resources/exploding kitten/nope_1.png",
-      "/Resources/exploding kitten/nope_2.png",
+      "/Resources/exploding kitten/nope_1.webp",
+      "/Resources/exploding kitten/nope_2.webp",
     ],
     color: "#ff5a5a",
     bg: "#3d0c0c",
@@ -120,35 +120,35 @@ export const CARD_META = {
   [CARD_TYPES.TACOCAT]: {
     label: "Tacocat",
     desc: "Mèo taco. Ghép đôi để ăn cắp bài.",
-    images: ["/Resources/exploding kitten/taco_cat.png"],
+    images: ["/Resources/exploding kitten/taco_cat.webp"],
     color: "#ffaa44",
     bg: "#3d1e00",
   },
   [CARD_TYPES.CATTERMELON]: {
     label: "Cattermelon",
     desc: "Mèo dưa hấu. Ghép đôi để ăn cắp bài.",
-    images: ["/Resources/exploding kitten/melon_cat.jpg"],
+    images: ["/Resources/exploding kitten/melon_cat.webp"],
     color: "#64d96a",
     bg: "#0c2c14",
   },
   [CARD_TYPES.HAIRY_POTATO_CAT]: {
     label: "Hairy Potato Cat",
     desc: "Mèo khoai tây. Ghép đôi để ăn cắp bài.",
-    images: ["/Resources/exploding kitten/shit_cat.png"],
+    images: ["/Resources/exploding kitten/shit_cat.webp"],
     color: "#c8a060",
     bg: "#2c1e08",
   },
   [CARD_TYPES.BEARD_CAT]: {
     label: "Beard Cat",
     desc: "Mèo râu. Ghép đôi để ăn cắp bài.",
-    images: ["/Resources/exploding kitten/beard_cat.jpg"],
+    images: ["/Resources/exploding kitten/beard_cat.webp"],
     color: "#88aaff",
     bg: "#0c1838",
   },
   [CARD_TYPES.RAINBOW_CAT]: {
     label: "Rainbow Cat",
     desc: "Mèo cầu vồng. Ghép đôi để ăn cắp bài.",
-    images: ["/Resources/exploding kitten/rainbowcat.png"],
+    images: ["/Resources/exploding kitten/rainbowcat.webp"],
     color: "#ff88dd",
     bg: "#3d0c2c",
   },
@@ -156,14 +156,14 @@ export const CARD_META = {
 
 export function getCardImage(type) {
   const meta = CARD_META[type];
-  if (!meta) return "/Resources/exploding kitten/backcard.png";
+  if (!meta) return "/Resources/exploding kitten/backcard.webp";
   const imgs = meta.images;
   return imgs[Math.floor(Math.random() * imgs.length)];
 }
 
 export function getCardImageStable(type, seed = 0) {
   const meta = CARD_META[type];
-  if (!meta) return "/Resources/exploding kitten/backcard.png";
+  if (!meta) return "/Resources/exploding kitten/backcard.webp";
   const imgs = meta.images;
   return imgs[seed % imgs.length];
 }

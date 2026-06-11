@@ -790,7 +790,7 @@ function ExplodingKittenThumb() {
       width: "100%", height: "100%",
     }}>
       <img
-        src="/Resources/exploding kitten/thumbnail.jpg"
+        src="/Resources/exploding kitten/thumbnail.webp"
         alt="Exploding Kitten"
         style={{
           width: "100%", height: "100%",
