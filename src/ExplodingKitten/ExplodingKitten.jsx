@@ -602,7 +602,7 @@ function GameBoardScreen({
                 {topDiscard ? (
                   <div className="ek-pile-card ek-pile-discard">
                     <img
-                      src={(CARD_META[topDiscard.type]?.images || [])[0] || ''}
+                      src={topDiscard.image || ''}
                       alt={CARD_META[topDiscard.type]?.label || 'Card'}
                       className="ek-card-img"
                       onError={e => { e.target.style.display = 'none'; }}
@@ -693,7 +693,7 @@ function GameBoardScreen({
       </div>
 
       {/* ── Phase Overlays ── */}
-      {phase === 'defuse' && (
+      {phase === 'defuse' && pending?.by === myRole && bombDone && (
         <div className="ek-overlay-panel">
           <DefusePanel drawPile={drawPile} onPlaceBomb={onPlaceBomb} />
         </div>
