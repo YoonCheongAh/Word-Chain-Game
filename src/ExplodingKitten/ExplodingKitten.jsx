@@ -492,6 +492,23 @@ function GameBoardScreen({
   const fxTimerRef = useRef(null);
 
   const [drawAnim, setDrawAnim] = useState(0);
+  const [handKey, setHandKey] = useState(0);
+  const [handOrder, setHandOrder] = useState(null);
+
+  const handleShuffleHand = useCallback(() => {
+    setHandOrder(prev => {
+      const currentHand = prev || myHand;
+      const shuffled = [...currentHand];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    });
+    setHandKey(k => k + 1);
+    SoundManager.play('shuffle');
+  }, [myHand]);
+
   const prevDrawCountRef = useRef(drawPile.length);
   const drawTimerRef = useRef(null);
 
@@ -505,6 +522,11 @@ function GameBoardScreen({
     prevDrawCountRef.current = drawPile.length;
     return () => clearTimeout(drawTimerRef.current);
   }, [drawPile.length]);
+
+  useEffect(() => {
+    // Reset hand order khi số lượng bài thay đổi (draw/play card)
+    setHandOrder(null);
+  }, [myHand.length]);
 
   useEffect(() => {
     if (!topDiscard) return;
@@ -521,6 +543,10 @@ function GameBoardScreen({
 
   const otherRoles = ALL_ROLES.filter(r => players[r] && r !== myRole);
   const posMap = OPP_POSITIONS[otherRoles.length] || ['north'];
+
+  const displayHand = handOrder && handOrder.length === myHand.length
+    ? handOrder.filter(c => myHand.some(m => m.id === c.id))
+    : myHand;
 
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
@@ -657,8 +683,16 @@ function GameBoardScreen({
           </div>
 
           <div className="ek-hand-and-actions">
+            <button
+              className="ek-shuffle-hand-btn"
+              onClick={handleShuffleHand}
+              title="Shuffle your hand"
+            >
+              <span className="ek-shuffle-hand-icon">🔀</span>
+              <span className="ek-shuffle-hand-label">Shuffle</span>
+            </button>
             <div className="ek-hand-fan">
-              {myHand.length > 0 ? myHand.map((card, idx) => {
+              {displayHand.length > 0 ? displayHand.map((card, idx) => {
                 const isSelected = selectedCards.some(s => s.id === card.id);
                 const meta = CARD_META[card.type];
                 const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
@@ -1574,6 +1608,32 @@ function getStyles() {
     @keyframes burstIn { from { transform: scale(0.2) rotate(-20deg); opacity: 0; } to { transform: scale(1) rotate(0deg); opacity: 1; } }
     .ek-gameover-name { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; background: linear-gradient(120deg, var(--ek-fire), var(--ek-gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .ek-gameover-sub { font-size: 13px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 28px; }
+
+    /* ── Shuffle hand button ── */
+    .ek-shuffle-hand-btn {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; padding: 10px 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1.5px solid rgba(255,255,255,0.12);
+      border-radius: 14px; cursor: pointer; color: var(--ek-text-muted);
+      font-family: 'Nunito', sans-serif;
+      transition: all .2s; flex-shrink: 0;
+      min-width: 52px; align-self: center;
+    }
+    .ek-shuffle-hand-btn:hover {
+      background: rgba(255,208,96,0.12);
+      border-color: var(--ek-gold);
+      color: var(--ek-gold);
+      transform: scale(1.08);
+      box-shadow: 0 4px 16px rgba(255,208,96,0.25);
+    }
+    .ek-shuffle-hand-btn:active { transform: scale(0.96); }
+    .ek-shuffle-hand-icon { font-size: 22px; display: block; transition: transform .35s; }
+    .ek-shuffle-hand-btn:hover .ek-shuffle-hand-icon { transform: rotate(180deg); }
+    .ek-shuffle-hand-label {
+      font-size: 9px; font-weight: 800; letter-spacing: 1px;
+      text-transform: uppercase; line-height: 1;
+    }
 
     /* ── Reduced motion support ── */
     @media (prefers-reduced-motion: reduce) {

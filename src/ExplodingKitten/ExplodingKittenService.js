@@ -461,7 +461,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     const partnerCard = hand[partnerIdx];
     const finalHand = newHand.filter(c => c.id !== partnerCard.id);
     const pairDiscard = [...(game.discardPile || []), card, partnerCard];
-    const logMsg = `${players[playerRoxle].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
+    const logMsg = `${players[playerRole].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
 
     const pendingObj = {
       type: "pair",
