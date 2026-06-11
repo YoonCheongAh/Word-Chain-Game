@@ -739,7 +739,7 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
         <img src="/Resources/exploding kitten/backcard.webp" alt="card back" className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
       </div>
       <div className="ek-card-face ek-card-face-front">
-        <img src={(meta?.images || [])[0] || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
+        <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
         <div className="ek-card-label-bar">{meta?.label || card.type}</div>
       </div>
       {isSelected && <div className="ek-card-selected-glow" />}
@@ -752,7 +752,8 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
 const CardPlayEffect = memo(function CardPlayEffect({ type }) {
   const meta = CARD_META[type];
   const color = meta?.color || '#FF9020';
-  const img = (meta?.images || [])[0] || '';
+  const images = meta?.images || [];
+  const img = images[Math.floor(Math.random() * images.length)] || '';
   return (
     <div className="ek-fx-layer" style={{ '--fx-color': color }} aria-hidden="true">
       <div className="ek-fx-ring" />
@@ -843,7 +844,7 @@ const FavorGivePanel = memo(function FavorGivePanel({ myHand, requesterName, onG
           const meta = CARD_META[card.type];
           return (
             <div key={card.id} className="ek-favor-card" onClick={() => onGive(card.id)}>
-              <img src={(meta?.images || [])[0] || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
+              <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
               <div className="ek-card-label-bar">{meta?.label || card.type}</div>
             </div>
           );
@@ -977,7 +978,7 @@ const SeeFuturePanel = memo(function SeeFuturePanel({ cards, onClose }) {
           return (
             <div key={i} className="ek-future-item">
               <div className="ek-future-num">#{i + 1}</div>
-              <img src={(meta?.images || [])[0] || ''} alt={meta?.label} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
+              <img src={card.image || ''} alt={meta?.label} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
               <div className="ek-future-name">{meta?.label}</div>
             </div>
           );

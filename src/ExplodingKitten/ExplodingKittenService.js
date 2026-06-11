@@ -168,13 +168,27 @@ export function getCardImageStable(type, seed = 0) {
   return imgs[seed % imgs.length];
 }
 
+function createCard(type, index = 0) {
+  const images = CARD_META[type]?.images || [];
+  const image =
+    images.length > 0
+      ? images[Math.floor(Math.random() * images.length)]
+      : "/Resources/exploding kitten/backcard.webp";
+
+  return {
+    type,
+    image,
+    id: `${type}_${index}_${Math.random().toString(36).slice(2)}`,
+  };
+}
+
 // ─── Deck builder ────────────────────────────────────────────────────────────
 
 function buildBaseDeck(playerCount) {
   const deck = [];
   const add = (type, count) => {
     for (let i = 0; i < count; i++) {
-      deck.push({ type, id: `${type}_${i}_${Math.random().toString(36).slice(2)}` });
+      deck.push(createCard(type, i));
     }
   };
   // Action cards — scaled to player count
@@ -309,16 +323,25 @@ export async function startGame(roomId) {
     for (let i = 0; i < 5; i++) {       // 5 random cards (not 7)
       hands[role].push(deck.shift());
     }
-    hands[role].push({ type: CARD_TYPES.DEFUSE, id: `defuse_deal_${role}` });
+    hands[role].push({
+      ...createCard(CARD_TYPES.DEFUSE),
+      id: `defuse_deal_${role}`
+    });
   }
 
   const bombs = [];
   for (let i = 0; i < playerCount - 1; i++) {   // Exploding Kittens = players - 1
-    bombs.push({ type: CARD_TYPES.EXPLODING_KITTEN, id: `bomb_${i}` });
+    bombs.push({
+      ...createCard(CARD_TYPES.EXPLODING_KITTEN),
+      id: `bomb_${i}`
+    });
   }
 
   for (let i = 0; i < extraDefuses; i++) {
-    deck.push({ type: CARD_TYPES.DEFUSE, id: `defuse_extra_${i}` });
+    deck.push({
+      ...createCard(CARD_TYPES.DEFUSE),
+      id: `defuse_extra_${i}`
+    });
   }
 
   deck = shuffle([...deck, ...bombs]);
