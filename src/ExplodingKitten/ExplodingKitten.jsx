@@ -460,6 +460,16 @@ function GameBoardScreen({
   const [newCardIds, setNewCardIds] = useState(new Set());
   const prevHandIdsRef = useRef(new Set());
   const flipTimersRef = useRef({});
+  const prevGameIdRef = useRef(game?.startedAt);
+  const [bombDone, setBombDone] = useState(true);
+
+  useEffect(() => {
+    if (game?.startedAt && game.startedAt !== prevGameIdRef.current) {
+      setShowBombFx(false);
+      setBombDone(true);
+      prevGameIdRef.current = game.startedAt;
+    }
+  }, [game?.startedAt]);
 
   useEffect(() => {
     const currentIds = new Set(myHand.map(c => c.id));
@@ -505,16 +515,26 @@ function GameBoardScreen({
     const isAlive = players[myRole]?.alive !== false;
     const phaseChangedToDefuse = prevPhaseRef.current !== 'defuse' && phase === 'defuse';
 
-    // Show explosion if:
-    // 1) Phase just changed to 'defuse' (I drew bomb but have defuse)
-    // 2) I just died (was alive, now dead)
     if (phaseChangedToDefuse || (wasAlive && !isAlive)) {
       setShowBombFx(true);
+      setBombDone(false);
     }
 
     prevPhaseRef.current = phase;
     prevAliveRef.current = isAlive;
   }, [phase, players, myRole]);
+
+  useEffect(() => {
+    if (gameOver) {
+      SoundManager.play(gameOver === myRole ? 'win' : 'lose');
+      // Nếu bomb chưa được trigger (người thắng), trigger ngay
+      if (bombDone) {
+        setShowBombFx(true);
+        setBombDone(false);
+      }
+      // Nếu bombDone === false, bomb đang chạy rồi, không cần làm gì
+    }
+  }, [gameOver]);
 
   // ── Action card fx ──
   const [cardFx, setCardFx] = useState(null);
@@ -536,10 +556,6 @@ function GameBoardScreen({
     prevDrawCountRef.current = drawPile.length;
     return () => clearTimeout(drawTimerRef.current);
   }, [drawPile.length]);
-
-  useEffect(() => {
-    if (gameOver) SoundManager.play(gameOver === myRole ? 'win' : 'lose');
-  }, [gameOver]);
 
   useEffect(() => {
     if (!topDiscard) return;
@@ -567,7 +583,7 @@ function GameBoardScreen({
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
 
-  if (gameOver) {
+  if (gameOver && bombDone) {
     const winnerPlayer = players[gameOver];
     const isMe = gameOver === myRole;
     return (
@@ -805,7 +821,10 @@ function GameBoardScreen({
 
       {/* ── Bomb explosion overlay ── */}
       {showBombFx && (
-        <BombExplosionEffect onDone={() => setShowBombFx(false)} />
+        <BombExplosionEffect onDone={() => {
+          setShowBombFx(false);
+          setBombDone(true);
+        }} />
       )}
     </div>
   );

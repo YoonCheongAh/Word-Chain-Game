@@ -170,24 +170,33 @@ export function getCardImageStable(type, seed = 0) {
 
 // ─── Deck builder ────────────────────────────────────────────────────────────
 
-function buildBaseDeck() {
+function buildBaseDeck(playerCount) {
   const deck = [];
   const add = (type, count) => {
     for (let i = 0; i < count; i++) {
       deck.push({ type, id: `${type}_${i}_${Math.random().toString(36).slice(2)}` });
     }
   };
-  add(CARD_TYPES.ATTACK, 4);
-  add(CARD_TYPES.SKIP, 4);
-  add(CARD_TYPES.FAVOR, 4);
-  add(CARD_TYPES.SHUFFLE, 4);
-  add(CARD_TYPES.SEE_THE_FUTURE, 5);
-  add(CARD_TYPES.NOPE, 5);
-  add(CARD_TYPES.TACOCAT, 4);
-  add(CARD_TYPES.CATTERMELON, 4);
-  add(CARD_TYPES.HAIRY_POTATO_CAT, 4);
-  add(CARD_TYPES.BEARD_CAT, 4);
-  add(CARD_TYPES.RAINBOW_CAT, 4);
+  // Action cards — scaled to player count
+  add(CARD_TYPES.ATTACK, playerCount);
+  add(CARD_TYPES.SKIP, playerCount);
+  add(CARD_TYPES.FAVOR, playerCount);
+  add(CARD_TYPES.SHUFFLE, Math.max(4, playerCount - 1));
+  add(CARD_TYPES.SEE_THE_FUTURE, playerCount + 1);
+  add(CARD_TYPES.NOPE, playerCount + 1);
+  // Cat cards — 4 × playerCount spread equally across the 5 types
+  // Each type gets floor(total/5); the remainder is distributed to the first types
+  const totalCats = 4 * playerCount;
+  const basePerType = Math.floor(totalCats / 5);
+  const remainder = totalCats % 5;
+  const catTypes = [
+    CARD_TYPES.TACOCAT,
+    CARD_TYPES.CATTERMELON,
+    CARD_TYPES.HAIRY_POTATO_CAT,
+    CARD_TYPES.RAINBOW_CAT,
+    CARD_TYPES.BEARD_CAT,
+  ];
+  catTypes.forEach((type, i) => add(type, basePerType + (i < remainder ? 1 : 0)));
   return deck;
 }
 
@@ -288,23 +297,26 @@ export async function startGame(roomId) {
   const roles = Object.keys(players).sort();
   const playerCount = roles.length;
 
-  let deck = shuffle(buildBaseDeck());
+  let deck = shuffle(buildBaseDeck(playerCount));
+
+  // Total defuses = playerCount + 2; each player gets 1, rest go into the draw pile
+  const totalDefuses = playerCount + 2;
+  const extraDefuses = totalDefuses - playerCount; // always 2
 
   const hands = {};
   for (const role of roles) {
     hands[role] = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 5; i++) {       // 5 random cards (not 7)
       hands[role].push(deck.shift());
     }
     hands[role].push({ type: CARD_TYPES.DEFUSE, id: `defuse_deal_${role}` });
   }
 
   const bombs = [];
-  for (let i = 0; i < playerCount - 1; i++) {
+  for (let i = 0; i < playerCount - 1; i++) {   // Exploding Kittens = players - 1
     bombs.push({ type: CARD_TYPES.EXPLODING_KITTEN, id: `bomb_${i}` });
   }
 
-  const extraDefuses = Math.max(0, 6 - playerCount);
   for (let i = 0; i < extraDefuses; i++) {
     deck.push({ type: CARD_TYPES.DEFUSE, id: `defuse_extra_${i}` });
   }
