@@ -11,6 +11,7 @@ export const CARD_TYPES = {
   FAVOR: "favor",
   SHUFFLE: "shuffle",
   SEE_THE_FUTURE: "see_the_future",
+  ALTER_THE_FUTURE: "alter_the_future",
   NOPE: "nope",
   TACOCAT: "tacocat",
   CATTERMELON: "cattermelon",
@@ -34,6 +35,7 @@ export const NOPEABLE_TYPES = new Set([
   CARD_TYPES.FAVOR,
   CARD_TYPES.SHUFFLE,
   CARD_TYPES.SEE_THE_FUTURE,
+  CARD_TYPES.ALTER_THE_FUTURE,
   CARD_TYPES.TACOCAT,
   CARD_TYPES.CATTERMELON,
   CARD_TYPES.HAIRY_POTATO_CAT,
@@ -106,6 +108,13 @@ export const CARD_META = {
     ],
     color: "#5ab4ff",
     bg: "#0c1e38",
+  },
+  [CARD_TYPES.ALTER_THE_FUTURE]: {
+    label: "Alter The Future",
+    desc: "Nhìn 3 lá bài rồi sắp xếp lại thứ tự.",
+    images: ["/Resources/exploding kitten/alter_the_future_1.webp"],
+    color: "#b87fff",
+    bg: "#2c0c38",
   },
   [CARD_TYPES.NOPE]: {
     label: "Nope",
@@ -196,7 +205,8 @@ function buildBaseDeck(playerCount) {
   add(CARD_TYPES.SKIP, playerCount);
   add(CARD_TYPES.FAVOR, playerCount);
   add(CARD_TYPES.SHUFFLE, Math.max(4, playerCount - 1));
-  add(CARD_TYPES.SEE_THE_FUTURE, playerCount + 1);
+  add(CARD_TYPES.SEE_THE_FUTURE, playerCount);
+  add(CARD_TYPES.ALTER_THE_FUTURE, 1);
   add(CARD_TYPES.NOPE, playerCount + 1);
   // Cat cards — 4 × playerCount spread equally across the 5 types
   // Each type gets floor(total/5); the remainder is distributed to the first types
@@ -265,6 +275,14 @@ function buildResolutionUpdates(pending, game) {
       return {
         "game/seeTheFuture": { cards: pending.top3, forPlayer: pending.by },
         "game/phase": "see_future",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+    case "alter_the_future":
+      return {
+        "game/alterTheFuture": { cards: pending.top3, forPlayer: pending.by },
+        "game/phase": "alter_future",
         "game/pendingAction": null,
         "game/nopeWindow": null,
         "game/nopeChain": [],
@@ -443,7 +461,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     const partnerCard = hand[partnerIdx];
     const finalHand = newHand.filter(c => c.id !== partnerCard.id);
     const pairDiscard = [...(game.discardPile || []), card, partnerCard];
-    const logMsg = `${players[playerRole].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
+    const logMsg = `${players[playerRoxle].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
 
     const pendingObj = {
       type: "pair",
@@ -716,6 +734,47 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       break;
     }
 
+    case CARD_TYPES.ALTER_THE_FUTURE: {
+      const top3 = (game.drawPile || []).slice(-3).reverse();
+      const pendingObj = {
+        type: "alter_the_future",
+        by: playerRole,
+        top3,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+      const logMsg = logBase + " Peek at 3 cards and rearrange!";
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "alter_the_future",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": pendingObj,
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      }
+      break;
+    }
+
     default:
       return;
   }
@@ -927,6 +986,36 @@ export async function closeSeeTheFuture(roomId) {
     seeTheFuture: null,
     phase: "play",
     nopeWindow: null,
+  });
+}
+
+export async function reorderAlterTheFuture(roomId, playerRole, reorderedCards) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game } = room;
+
+  if (!game || game.turn !== playerRole) return;
+
+  // The reorderedCards come from the UI in display order (top to bottom)
+  // We need to put them back on the draw pile in reverse order so they draw in the correct sequence
+  const drawPile = [...(game.drawPile || [])];
+  
+  // Remove the top 3 cards that were revealed
+  drawPile.pop();
+  drawPile.pop();
+  drawPile.pop();
+
+  // Add the reordered cards back in reverse order (so they draw in the player's chosen order)
+  for (let i = reorderedCards.length - 1; i >= 0; i--) {
+    drawPile.push(reorderedCards[i]);
+  }
+
+  await update(ref(db, `rooms/${roomId}`), {
+    "game/drawPile": drawPile,
+    "game/alterTheFuture": null,
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/nopeWindow": null,
   });
 }
 

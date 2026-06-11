@@ -8,7 +8,7 @@ import { SoundManager } from './ExplodingKittenSound';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
-  resolveNopeWindow,
+  resolveNopeWindow, reorderAlterTheFuture,
   CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable,
 } from './ExplodingKittenService';
 
@@ -32,7 +32,7 @@ const PLAYER_SLOTS = ['player1', 'player2', 'player3', 'player4', 'player5', 'pl
 const ALL_ROLES = ['player1', 'player2', 'player3', 'player4', 'player5'];
 const ACTION_LABEL_MAP = {
   attack: 'Attack', skip: 'Skip', favor: 'Favor',
-  shuffle: 'Shuffle', see_the_future: 'See the Future', pair: 'Cat Pair steal',
+  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal',
 };
 
 export default function ExplodingKitten() {
@@ -191,6 +191,7 @@ export default function ExplodingKitten() {
   const handleStealCard = useCallback((target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex), [roomId, myRole]);
   const handleChooseFavorTarget = useCallback((targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole }), [roomId, myRole, pending?.favorCardId]);
   const handleCloseFuture = useCallback(() => closeSeeTheFuture(roomId), [roomId]);
+  const handleReorderAlterFuture = useCallback((reorderedCards) => reorderAlterTheFuture(roomId, myRole, reorderedCards), [roomId, myRole]);
   const handleRematch = useCallback(() => requestRematch(roomId, myRole), [roomId, myRole]);
 
   if (screen === 'lobby') {
@@ -220,6 +221,7 @@ export default function ExplodingKitten() {
         onChooseFavorTarget={handleChooseFavorTarget}
         onSelectFavorTarget={handleSelectFavorTarget}
         onCloseFuture={handleCloseFuture}
+        onReorderAlterFuture={handleReorderAlterFuture}
         onRematch={handleRematch}
         toast={toast}
         showToast={showToast}
@@ -412,8 +414,8 @@ const BombExplosionEffect = memo(function BombExplosionEffect({ onDone }) {
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
   selectedCards, onCardClick, onPlaySelected, onDrawCard,
-  onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget,
-  onCloseFuture, onRematch, toast, showToast, roomId,
+  onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
+  onCloseFuture, onReorderAlterFuture, onRematch, toast, showToast, roomId,
 }) {
   const gameOver = game?.winner;
   const drawPile = game?.drawPile || [];
@@ -705,6 +707,11 @@ function GameBoardScreen({
           <SeeFuturePanel cards={game?.seeTheFuture?.cards || []} onClose={onCloseFuture} />
         </div>
       )}
+      {phase === 'alter_future' && game?.alterTheFuture?.forPlayer === myRole && (
+        <div className="ek-overlay-panel">
+          <AlterFuturePanel cards={game?.alterTheFuture?.cards || []} onReorder={onReorderAlterFuture} />
+        </div>
+      )}
       {phase === 'favor_choose_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
           <FavorChooseTargetPanel players={players} myRole={myRole} onSelect={onSelectFavorTarget} />
@@ -991,6 +998,78 @@ const SeeFuturePanel = memo(function SeeFuturePanel({ cards, onClose }) {
   );
 });
 
+/* ─── ALTER THE FUTURE PANEL ─────────────────────────────────────────── */
+const AlterFuturePanel = memo(function AlterFuturePanel({ cards, onReorder }) {
+  const [reordered, setReordered] = useState(() => cards.map((c, i) => ({ ...c, _origIdx: i })));
+  const [draggedIdx, setDraggedIdx] = useState(null);
+  const [overIdx, setOverIdx] = useState(null);
+
+  const handleDragStart = (e, i) => {
+    setDraggedIdx(i);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(i));
+  };
+
+  const handleDragOver = (e, i) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (i !== overIdx) setOverIdx(i);
+  };
+
+  const handleDrop = (e, targetIdx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setReordered(prev => {
+      if (draggedIdx === null || draggedIdx === targetIdx) return prev;
+      const newOrder = [...prev];
+      const [dragged] = newOrder.splice(draggedIdx, 1);
+      newOrder.splice(targetIdx, 0, dragged);
+      return newOrder;
+    });
+    setDraggedIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleConfirm = () => {
+    onReorder(reordered.map(({ _origIdx, ...c }) => c));
+  };
+
+  return (
+    <div className="ek-panel-inner ek-panel-wide">
+      <div className="ek-panel-icon">✨</div>
+      <h3 className="ek-panel-title">Rearrange the next 3 cards</h3>
+      <p className="ek-panel-sub">Drag cards to reorder them</p>
+      <div className="ek-future-row">
+        {reordered.map((card, i) => {
+          const meta = CARD_META[card.type];
+          return (
+            <div
+              key={card._origIdx}
+              className={`ek-future-item${draggedIdx === i ? ' ek-dragging' : ''}${overIdx === i && draggedIdx !== i ? ' ek-drag-over' : ''}`}
+              draggable
+              onDragStart={(e) => handleDragStart(e, i)}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={(e) => handleDrop(e, i)}
+              onDragEnd={handleDragEnd}
+              style={{ cursor: 'grab', opacity: draggedIdx === i ? 0.5 : 1, touchAction: 'none' }}
+            >
+              <div className="ek-future-num">#{i + 1}</div>
+              <img src={card.image || ''} alt={meta?.label} className="ek-card-img" draggable={false} onError={e => { e.target.style.display = 'none'; }} />
+              <div className="ek-future-name">{meta?.label}</div>
+            </div>
+          );
+        })}
+      </div>
+      <button className="ek-action-btn ek-action-play" style={{ width: '100%', marginTop: 12 }} onClick={handleConfirm}>Place Back</button>
+    </div>
+  );
+});
+
 /* ─── STYLES ─────────────────────────────────────────────────────────── */
 function getStyles() {
   return `
@@ -1237,8 +1316,9 @@ function getStyles() {
     .ek-future-row { display: flex; gap: 16px; justify-content: center; margin-bottom: 4px; flex-wrap: wrap; }
     .ek-future-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
     .ek-future-num { font-size: 13px; font-family: 'DM Mono', monospace; color: var(--ek-text-muted); }
-    .ek-future-item img { width: 124px; height: 174px; object-fit: cover; border-radius: 12px; border: 2px solid rgba(255,255,255,0.12); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .ek-future-item img { width: 124px; height: 174px; object-fit: cover; border-radius: 12px; border: 2px solid rgba(255,255,255,0.12); box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: transform .2s, box-shadow .2s; }
     .ek-future-name { font-size: 12px; color: var(--ek-text); text-align: center; max-width: 124px; font-weight: 700; }
+    .ek-dragging img { transform: scale(0.95); box-shadow: 0 12px 32px rgba(184,127,255,0.4); border-color: var(--ek-purple); }
 
     /* ── Target / Favor panels ── */
     .ek-target-list { display: flex; flex-direction: column; gap: 10px; }
