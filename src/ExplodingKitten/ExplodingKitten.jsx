@@ -21,7 +21,7 @@ export default function ExplodingKitten() {
   const [roomData, setRoomData] = useState(null);
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
-  const [selectedCards, setSelectedCards] = useState([]); // array of card ids
+  const [selectedCards, setSelectedCards] = useState([]);
   const nopeTimerRef = useRef(null);
 
   const game = roomData?.game;
@@ -58,16 +58,15 @@ export default function ExplodingKitten() {
     }
   }, [roomData?.status]);
 
-  // Nope window timer: only the action owner resolves it
   useEffect(() => {
     if (!nopeWindow?.open || !pending) return;
-    if (pending.by !== myRole) return; // only the card player drives the timer
+    if (pending.by !== myRole) return;
 
     if (nopeTimerRef.current) clearTimeout(nopeTimerRef.current);
     const delay = Math.max(0, (nopeWindow.expiresAt || 0) - Date.now());
     nopeTimerRef.current = setTimeout(() => {
       resolveNopeWindow(roomId);
-    }, delay + 300); // small buffer
+    }, delay + 300);
 
     return () => clearTimeout(nopeTimerRef.current);
   }, [nopeWindow?.expiresAt, nopeWindow?.open, pending?.by, myRole, roomId]);
@@ -121,7 +120,6 @@ export default function ExplodingKitten() {
 
   const handleCardClick = (card) => {
     SoundManager.play(SoundManager.soundForCard(card.type));
-    // Anyone can play Nope during nope window
     if (card.type === CARD_TYPES.NOPE) {
       if (!nopeWindow?.open) {
         showToast('No action to Nope right now!');
@@ -141,27 +139,22 @@ export default function ExplodingKitten() {
       return;
     }
 
-    // Cat card pairing logic
     if (CAT_CARD_TYPES.has(card.type)) {
       const alreadySelected = selectedCards[0];
       if (alreadySelected?.id === card.id) {
-        // Deselect
         setSelectedCards([]);
         return;
       }
       if (alreadySelected?.type === card.type) {
-        // Two matching cats selected → play as pair
         playCard(roomId, myRole, alreadySelected.id, { isPair: true });
         setSelectedCards([]);
         return;
       }
-      // Select this cat (replacing any previous selection)
       setSelectedCards([card]);
       showToast(`Select another ${CARD_META[card.type]?.label} to play as pair`);
       return;
     }
 
-    // Non-cat cards: single select toggle
     if (selectedCards[0]?.id === card.id) {
       setSelectedCards([]);
     } else {
@@ -179,7 +172,6 @@ export default function ExplodingKitten() {
     }
 
     if (card.type === CARD_TYPES.FAVOR) {
-      // Favor needs target selection first — trigger favor_choose_target phase via service
       playCard(roomId, myRole, card.id, {});
       setSelectedCards([]);
       return;
@@ -217,7 +209,6 @@ export default function ExplodingKitten() {
         onStealCard={(target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex)}
         onChooseFavorTarget={(targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole })}
         onSelectFavorTarget={(targetRole) => {
-          // Called from FavorTargetPanel; pending already has the card consumed
           update(ref(db, `rooms/${roomId}`), {
             'game/pendingAction': { ...pending, target: targetRole },
             'game/phase': 'nope_window',
@@ -251,14 +242,12 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
           <div key={i} className={`ek-spark ek-spark-${i % 4}`} style={{ left: `${8 + i * 7.5}%`, animationDelay: `${i * 0.4}s` }} />
         ))}
       </div>
-
       <div className="ek-lobby-inner">
         <div className="ek-lobby-brand">
           <div className="ek-brand-icon">💣</div>
           <h1 className="ek-brand-title">EXPLODING<br /><span>KITTENS</span></h1>
           <p className="ek-brand-sub">Online · Multiplayer · Live</p>
         </div>
-
         <div className="ek-lobby-forms">
           <div className="ek-form-card">
             <div className="ek-form-tag">Your Identity</div>
@@ -270,13 +259,11 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
               onKeyDown={e => e.key === 'Enter' && onCreateRoom()}
             />
           </div>
-
           <div className="ek-form-row">
             <button className="ek-cta ek-cta-fire" onClick={onCreateRoom}>
               <span className="ek-cta-icon">🔥</span>
               <span>Create Room</span>
             </button>
-
             <div className="ek-join-group">
               <input
                 className="ek-field ek-field-code"
@@ -290,7 +277,6 @@ function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, set
               </button>
             </div>
           </div>
-
           {err && <div className="ek-err-pill">{err}</div>}
         </div>
       </div>
@@ -323,7 +309,6 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
           <h2 className="ek-room-title">Room Lobby</h2>
           <div style={{ width: '40px' }} />
         </div>
-
         <div className="ek-room-code-card">
           <p className="ek-room-eyebrow">Share Code with Friends</p>
           <div className="ek-room-code-display-large" onClick={copyCode} title="Click to copy">
@@ -331,7 +316,6 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
           </div>
           <p className="ek-code-sub">{copied ? '✓ Copied to clipboard!' : 'Click to copy the room code'}</p>
         </div>
-
         <div className="ek-players-section">
           <div className="ek-players-header">
             <p className="ek-section-label">Players ({playerCount}/6)</p>
@@ -361,7 +345,6 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
             })}
           </div>
         </div>
-
         <div className="ek-room-action">
           {isHost ? (
             <>
@@ -382,8 +365,79 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
           )}
         </div>
       </div>
-
       {copied && <div className="ek-copied-toast">✓ Copied to clipboard!</div>}
+    </div>
+  );
+}
+
+/* ─── BOMB EXPLOSION EFFECT ─────────────────────────────────────────── */
+function BombExplosionEffect({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2800);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  const particles = [...Array(22)];
+
+  return (
+    <div className="ek-bomb-overlay" aria-hidden="true">
+      {/* Screen flash */}
+      <div className="ek-bomb-flash" />
+
+      {/* Shockwave rings */}
+      <div className="ek-bomb-ring ek-bomb-ring-1" />
+      <div className="ek-bomb-ring ek-bomb-ring-2" />
+      <div className="ek-bomb-ring ek-bomb-ring-3" />
+
+      {/* Fire particles */}
+      {particles.map((_, i) => {
+        const angle = (i / particles.length) * 360;
+        const dist = 100 + (i % 5) * 40;
+        const size = 8 + (i % 4) * 6;
+        return (
+          <div
+            key={i}
+            className="ek-bomb-particle"
+            style={{
+              '--angle': `${angle}deg`,
+              '--dist': `${dist}px`,
+              '--size': `${size}px`,
+              '--delay': `${0.05 + (i % 6) * 0.04}s`,
+            }}
+          />
+        );
+      })}
+
+      {/* Central bomb card slam */}
+      <div className="ek-bomb-card-slam">
+        <div className="ek-bomb-card-inner">
+          <img
+            src="/Resources/exploding kitten/bomb_1.png"
+            alt="Exploding Kitten"
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+          <div className="ek-bomb-emoji">💥</div>
+        </div>
+      </div>
+
+      {/* Text burst */}
+      <div className="ek-bomb-text">
+        <span className="ek-bomb-text-main">BOOM!</span>
+        <span className="ek-bomb-text-sub">EXPLODING KITTEN!</span>
+      </div>
+
+      {/* Ember particles floating up */}
+      {[...Array(14)].map((_, i) => (
+        <div
+          key={`ember-${i}`}
+          className="ek-bomb-ember"
+          style={{
+            '--ex': `${10 + i * 6}%`,
+            '--delay': `${i * 0.08}s`,
+            '--size': `${3 + (i % 3) * 3}px`,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -401,14 +455,73 @@ function GameBoardScreen({
   const topDiscard = discardPile[discardPile.length - 1];
   const log = game?.log || [];
 
-  // ── Action / function card play effect ──
-  // Fire a flashy animation whenever a new action card lands on the discard pile.
+  // ── Card flip animation tracking ──
+  // newCardIds: Set of card IDs currently doing the flip-in animation
+  const [newCardIds, setNewCardIds] = useState(new Set());
+  const prevHandIdsRef = useRef(new Set());
+  const flipTimersRef = useRef({});
+
+  useEffect(() => {
+    const currentIds = new Set(myHand.map(c => c.id));
+    const added = [...currentIds].filter(id => !prevHandIdsRef.current.has(id));
+
+    if (added.length > 0) {
+      setNewCardIds(prev => {
+        const next = new Set(prev);
+        added.forEach(id => next.add(id));
+        return next;
+      });
+
+      // Remove flip class after animation completes (staggered)
+      added.forEach((id, i) => {
+        if (flipTimersRef.current[id]) clearTimeout(flipTimersRef.current[id]);
+        flipTimersRef.current[id] = setTimeout(() => {
+          setNewCardIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        }, 900 + i * 80);
+      });
+    }
+
+    prevHandIdsRef.current = currentIds;
+  }, [myHand]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(flipTimersRef.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  // ── Bomb explosion effect ──
+  const [showBombFx, setShowBombFx] = useState(false);
+  const prevPhaseRef = useRef(phase);
+  const prevAliveRef = useRef(true);
+
+  useEffect(() => {
+    const wasAlive = prevAliveRef.current;
+    const isAlive = players[myRole]?.alive !== false;
+    const phaseChangedToDefuse = prevPhaseRef.current !== 'defuse' && phase === 'defuse';
+
+    // Show explosion if:
+    // 1) Phase just changed to 'defuse' (I drew bomb but have defuse)
+    // 2) I just died (was alive, now dead)
+    if (phaseChangedToDefuse || (wasAlive && !isAlive)) {
+      setShowBombFx(true);
+    }
+
+    prevPhaseRef.current = phase;
+    prevAliveRef.current = isAlive;
+  }, [phase, players, myRole]);
+
+  // ── Action card fx ──
   const [cardFx, setCardFx] = useState(null);
   const lastFxIdRef = useRef(null);
   const fxTimerRef = useRef(null);
 
   // ── Draw card animation ──
-  // Trigger a flying-card animation whenever the draw pile shrinks (a card was drawn).
   const [drawAnim, setDrawAnim] = useState(0);
   const prevDrawCountRef = useRef(drawPile.length);
   const drawTimerRef = useRef(null);
@@ -433,7 +546,6 @@ function GameBoardScreen({
     if (lastFxIdRef.current === topDiscard.id) return;
     lastFxIdRef.current = topDiscard.id;
 
-    // Only animate action / function cards (everything except the cat cards & defuse).
     const isCat = CAT_CARD_TYPES.has(topDiscard.type);
     const isActionCard =
       !isCat &&
@@ -447,14 +559,11 @@ function GameBoardScreen({
     return () => clearTimeout(fxTimerRef.current);
   }, [topDiscard?.id]);
 
-
   const allRoles = ['player1', 'player2', 'player3', 'player4', 'player5'];
   const otherRoles = allRoles.filter(r => players[r] && r !== myRole);
-
   const positionSets = { 1: ['north'], 2: ['northwest', 'northeast'], 3: ['northwest', 'north', 'northeast'], 4: ['west', 'northwest', 'northeast', 'east'] };
   const posMap = positionSets[otherRoles.length] || ['north'];
 
-  // Can this player Nope right now?
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
 
@@ -518,7 +627,6 @@ function GameBoardScreen({
                   </div>
                   <div className="ek-pile-count-badge">{drawPile.length}</div>
                 </div>
-                {/* Flying card animation when a card is drawn */}
                 {drawAnim && (
                   <div className="ek-draw-fly" key={drawAnim}>
                     <img
@@ -552,7 +660,6 @@ function GameBoardScreen({
               </div>
             </div>
 
-            {/* Nope window banner */}
             {nopeWindow?.open && (
               <NopeWindowBanner
                 nopeWindow={nopeWindow}
@@ -566,7 +673,6 @@ function GameBoardScreen({
               />
             )}
 
-            {/* Turn indicator (only shown when no nope window) */}
             {!nopeWindow?.open && (
               <div className={`ek-turn-chip ${myTurn ? 'ek-turn-mine' : 'ek-turn-wait'}`}>
                 {myTurn
@@ -575,7 +681,6 @@ function GameBoardScreen({
               </div>
             )}
 
-            {/* Log */}
             <div className="ek-log-strip">
               {log.slice(0, 3).map((entry, i) => (
                 <div key={i} className="ek-log-entry">{entry}</div>
@@ -603,22 +708,34 @@ function GameBoardScreen({
             {myHand.length > 0 ? myHand.map((card, idx) => {
               const isSelected = selectedCards.some(s => s.id === card.id);
               const meta = CARD_META[card.type];
-              // Highlight Nope cards when nope window is open
               const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
+              const isNew = newCardIds.has(card.id);
               return (
                 <div
                   key={card.id}
-                  className={`ek-hand-card ${isSelected ? 'ek-hand-card-selected' : ''} ${(!myTurn && !isNopeable) ? 'ek-hand-card-disabled' : ''} ${isNopeable ? 'ek-hand-card-nopeable' : ''}`}
+                  className={`ek-hand-card ${isSelected ? 'ek-hand-card-selected' : ''} ${(!myTurn && !isNopeable) ? 'ek-hand-card-disabled' : ''} ${isNopeable ? 'ek-hand-card-nopeable' : ''} ${isNew ? 'ek-hand-card-new' : ''}`}
                   style={{ '--card-color': meta?.color || '#888', zIndex: isSelected ? 50 : idx }}
                   onClick={() => onCardClick(card)}
                 >
-                  <img
-                    src={(meta?.images || [])[0] || ''}
-                    alt={meta?.label || card.type}
-                    className="ek-card-img"
-                    onError={e => { e.target.style.display = 'none'; }}
-                  />
-                  <div className="ek-card-label-bar">{meta?.label || card.type}</div>
+                  {/* Back face (shown during flip-in) */}
+                  <div className="ek-card-face ek-card-face-back">
+                    <img
+                      src="/Resources/exploding kitten/backcard.png"
+                      alt="card back"
+                      className="ek-card-img"
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                  </div>
+                  {/* Front face */}
+                  <div className="ek-card-face ek-card-face-front">
+                    <img
+                      src={(meta?.images || [])[0] || ''}
+                      alt={meta?.label || card.type}
+                      className="ek-card-img"
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                    <div className="ek-card-label-bar">{meta?.label || card.type}</div>
+                  </div>
                   {isSelected && <div className="ek-card-selected-glow" />}
                   {isNopeable && <div className="ek-nope-glow" />}
                 </div>
@@ -628,7 +745,6 @@ function GameBoardScreen({
             )}
           </div>
 
-          {/* Action buttons */}
           {myTurn && phase === 'play' && (
             <div className="ek-action-strip">
               {selectedCards.length > 0 && (
@@ -656,7 +772,6 @@ function GameBoardScreen({
           <SeeFuturePanel cards={game?.seeTheFuture?.cards || []} onClose={onCloseFuture} />
         </div>
       )}
-      {/* Favor: active player's turn to choose who gets favored */}
       {phase === 'favor_choose_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
           <FavorChooseTargetPanel
@@ -666,7 +781,6 @@ function GameBoardScreen({
           />
         </div>
       )}
-      {/* Favor: target must give a card */}
       {phase === 'favor_give' && pending?.target === myRole && (
         <div className="ek-overlay-panel">
           <FavorGivePanel
@@ -676,7 +790,6 @@ function GameBoardScreen({
           />
         </div>
       )}
-      {/* Pair: attacker chooses who to steal from */}
       {phase === 'pair_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
           <PairTargetPanel
@@ -688,9 +801,12 @@ function GameBoardScreen({
       )}
 
       {toast && <div className="ek-toast">{toast}</div>}
-
-      {/* Action / function card visual effect */}
       {cardFx && <CardPlayEffect key={cardFx.key} type={cardFx.type} />}
+
+      {/* ── Bomb explosion overlay ── */}
+      {showBombFx && (
+        <BombExplosionEffect onDone={() => setShowBombFx(false)} />
+      )}
     </div>
   );
 }
@@ -723,7 +839,7 @@ function CardPlayEffect({ type }) {
       <div className="ek-fx-card">
         {img && (
           <img
-            src={img || "/placeholder.svg"}
+            src={img}
             alt={meta?.label || type}
             onError={e => { e.target.style.display = 'none'; }}
           />
@@ -758,7 +874,6 @@ function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onN
     pair: 'Cat Pair steal',
   }[nopeWindow.pendingType] || nopeWindow.pendingType;
 
-  const nopeCount = 0; // we just show current state
   const isNoped = nopeWindow.isCurrentlyNoped;
 
   return (
@@ -804,7 +919,7 @@ function FavorChooseTargetPanel({ players, myRole, onSelect }) {
   );
 }
 
-/* ─── FAVOR GIVE PANEL ──���────────────────────────────────────────────── */
+/* ─── FAVOR GIVE PANEL ───────────────────────────────────────────────── */
 function FavorGivePanel({ myHand, requesterName, onGive }) {
   return (
     <div className="ek-panel-inner">
@@ -833,7 +948,6 @@ function FavorGivePanel({ myHand, requesterName, onGive }) {
 
 /* ─── PAIR TARGET PANEL ──────────────────────────────────────────────── */
 function PairTargetPanel({ players, myRole, onSteal }) {
-  // Two-step flow: 1) choose a player, 2) choose a specific face-down card.
   const [chosenTarget, setChosenTarget] = useState(null);
   const [hoverIdx, setHoverIdx] = useState(null);
 
@@ -841,7 +955,6 @@ function PairTargetPanel({ players, myRole, onSteal }) {
     ([role, p]) => role !== myRole && p?.alive !== false
   );
 
-  // Step 2 — pick a specific face-down card from the chosen target
   if (chosenTarget) {
     const targetPlayer = players[chosenTarget];
     const handCount = targetPlayer?.hand?.length || 0;
@@ -852,7 +965,6 @@ function PairTargetPanel({ players, myRole, onSteal }) {
         <p className="ek-panel-sub">
           From {targetPlayer?.name} — cards stay face-down. Choose by position.
         </p>
-
         <div className="ek-steal-grid">
           {[...Array(handCount)].map((_, i) => (
             <button
@@ -871,7 +983,6 @@ function PairTargetPanel({ players, myRole, onSteal }) {
             </button>
           ))}
         </div>
-
         <button
           className="ek-action-btn ek-action-draw"
           style={{ width: '100%', marginTop: 14 }}
@@ -883,7 +994,6 @@ function PairTargetPanel({ players, myRole, onSteal }) {
     );
   }
 
-  // Step 1 — choose which player to steal from
   return (
     <div className="ek-panel-inner">
       <div className="ek-panel-icon">🐱</div>
@@ -1090,126 +1200,38 @@ function getStyles() {
     /* ══ ROOM ══ */
     .ek-room-root { display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse 120% 60% at 50% -10%, #1a3020 0%, #0D0D0D 55%); }
     .ek-room-wrap { position: relative; z-index: 10; width: min(600px, 94vw); display: flex; flex-direction: column; gap: 28px; padding: 0 20px; }
-    
     .ek-room-header { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 8px; }
     .ek-room-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 2px; color: var(--ek-text); margin: 0; }
-    
     .ek-back-btn { background: none; border: none; color: var(--ek-ember); font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; align-self: flex-start; padding: 0; }
     .ek-back-btn:hover { color: var(--ek-gold); }
-    
-    .ek-room-code-card { 
-      background: rgba(30,18,8,0.8); border: 1.5px solid rgba(255,144,32,0.3); border-radius: 20px; 
-      padding: 28px 24px; backdrop-filter: blur(8px); text-align: center;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    }
+    .ek-room-code-card { background: rgba(30,18,8,0.8); border: 1.5px solid rgba(255,144,32,0.3); border-radius: 20px; padding: 28px 24px; backdrop-filter: blur(8px); text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
     .ek-room-eyebrow { font-family: 'DM Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 3px; color: var(--ek-text-muted); margin: 0 0 16px 0; }
-    .ek-room-code-display-large { 
-      font-family: 'Bebas Neue', sans-serif; font-size: 72px; letter-spacing: 8px; 
-      background: linear-gradient(120deg, var(--ek-green), var(--ek-blue)); 
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
-      cursor: pointer; display: inline-block; transition: transform .2s, filter .2s;
-      line-height: 1; margin: 0;
-    }
+    .ek-room-code-display-large { font-family: 'Bebas Neue', sans-serif; font-size: 72px; letter-spacing: 8px; background: linear-gradient(120deg, var(--ek-green), var(--ek-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; display: inline-block; transition: transform .2s, filter .2s; line-height: 1; margin: 0; }
     .ek-room-code-display-large:hover { transform: scale(1.05); filter: brightness(1.2); }
     .ek-code-sub { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--ek-text-muted); letter-spacing: 0.5px; margin: 12px 0 0 0; }
-    
     .ek-players-section { width: 100%; }
     .ek-players-header { margin-bottom: 16px; }
-    .ek-section-label { 
-      font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; 
-      color: var(--ek-gold); letter-spacing: 1px; margin: 0; text-transform: uppercase;
-    }
-    
-    .ek-players-grid { 
-      display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
-      width: 100%;
-    }
-    @media (min-width: 700px) {
-      .ek-players-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    }
-    
-    .ek-player-card {
-      background: rgba(26,16,8,0.7); border: 2px solid rgba(255,255,255,0.08);
-      border-radius: 16px; padding: 18px 14px; text-align: center;
-      transition: all .3s ease; position: relative;
-      display: flex; flex-direction: column; align-items: center; gap: 12px;
-      overflow: hidden;
-    }
-    
-    .ek-player-card::before {
-      content: ''; position: absolute; inset: 0; background: rgba(var(--player-color-rgb, 255,144,32), 0);
-      pointer-events: none; transition: background .3s ease;
-    }
-    
-    .ek-player-filled {
-      background: linear-gradient(135deg, rgba(26,16,8,0.9) 0%, rgba(30,20,10,0.7) 100%);
-      border-color: rgba(255,144,32,0.35);
-    }
-    
-    .ek-player-filled:hover {
-      border-color: rgba(255,144,32,0.6);
-      box-shadow: 0 8px 24px rgba(255,90,31,0.2);
-      transform: translateY(-2px);
-    }
-    
-    .ek-player-self {
-      border: 2px solid var(--ek-fire);
-      background: linear-gradient(135deg, rgba(255,90,31,0.15) 0%, rgba(255,144,32,0.08) 100%);
-      box-shadow: 0 0 24px rgba(255,90,31,0.25), inset 0 0 16px rgba(255,90,31,0.1);
-    }
-    
-    .ek-player-empty {
-      border-color: rgba(255,255,255,0.1);
-      opacity: 0.6;
-    }
-    
-    .ek-player-empty:hover {
-      border-color: rgba(255,144,32,0.2);
-    }
-    
-    .ek-player-slot-indicator {
-      font-size: 9px; font-weight: 800; letter-spacing: 2px; 
-      text-transform: uppercase; color: var(--ek-text-muted);
-      padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 6px;
-    }
-    
+    .ek-section-label { font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; color: var(--ek-gold); letter-spacing: 1px; margin: 0; text-transform: uppercase; }
+    .ek-players-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; width: 100%; }
+    @media (min-width: 700px) { .ek-players-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; } }
+    .ek-player-card { background: rgba(26,16,8,0.7); border: 2px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 18px 14px; text-align: center; transition: all .3s ease; position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow: hidden; }
+    .ek-player-card::before { content: ''; position: absolute; inset: 0; background: rgba(var(--player-color-rgb, 255,144,32), 0); pointer-events: none; transition: background .3s ease; }
+    .ek-player-filled { background: linear-gradient(135deg, rgba(26,16,8,0.9) 0%, rgba(30,20,10,0.7) 100%); border-color: rgba(255,144,32,0.35); }
+    .ek-player-filled:hover { border-color: rgba(255,144,32,0.6); box-shadow: 0 8px 24px rgba(255,90,31,0.2); transform: translateY(-2px); }
+    .ek-player-self { border: 2px solid var(--ek-fire); background: linear-gradient(135deg, rgba(255,90,31,0.15) 0%, rgba(255,144,32,0.08) 100%); box-shadow: 0 0 24px rgba(255,90,31,0.25), inset 0 0 16px rgba(255,90,31,0.1); }
+    .ek-player-empty { border-color: rgba(255,255,255,0.1); opacity: 0.6; }
+    .ek-player-empty:hover { border-color: rgba(255,144,32,0.2); }
+    .ek-player-slot-indicator { font-size: 9px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--ek-text-muted); padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 6px; }
     .ek-slot-label { color: rgba(255,255,255,0.6); }
-    
-    .ek-player-avatar {
-      width: 56px; height: 56px; border-radius: 50%; 
-      display: flex; align-items: center; justify-content: center;
-      font-size: 24px; font-weight: 800; 
-      background: linear-gradient(135deg, rgba(255,144,32,0.2), rgba(255,90,31,0.15));
-      border: 2px solid rgba(255,144,32,0.4);
-      color: var(--ek-ember);
-      z-index: 1;
-    }
-    
-    .ek-player-empty .ek-player-avatar {
-      opacity: 0.4;
-      color: rgba(255,255,255,0.3);
-      border-color: rgba(255,255,255,0.1);
-    }
-    
+    .ek-player-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, rgba(255,144,32,0.2), rgba(255,90,31,0.15)); border: 2px solid rgba(255,144,32,0.4); color: var(--ek-ember); z-index: 1; }
+    .ek-player-empty .ek-player-avatar { opacity: 0.4; color: rgba(255,255,255,0.3); border-color: rgba(255,255,255,0.1); }
     .ek-player-details { width: 100%; z-index: 1; }
-    .ek-player-name { 
-      font-size: 14px; font-weight: 700; color: var(--ek-text);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    
+    .ek-player-name { font-size: 14px; font-weight: 700; color: var(--ek-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ek-player-empty .ek-player-name { color: var(--ek-text-muted); font-weight: 600; }
     .ek-player-you { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--ek-green); font-weight: 800; letter-spacing: 1px; }
     .ek-player-waiting { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
-    
-    .ek-room-action {
-      display: flex; flex-direction: column; gap: 12px; align-items: center; margin-top: 12px;
-    }
-    
-    .ek-host-info {
-      font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace;
-      margin: 0; letter-spacing: 1px;
-    }
-    
+    .ek-room-action { display: flex; flex-direction: column; gap: 12px; align-items: center; margin-top: 12px; }
+    .ek-host-info { font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin: 0; letter-spacing: 1px; }
     .ek-host-wait { text-align: center; font-size: 14px; color: var(--ek-text-muted); font-family: 'Nunito', sans-serif; font-weight: 600; margin: 0; }
     .ek-lobby-hint { text-align: center; font-size: 12px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin: 0; }
     .ek-start-btn { width: 100%; max-width: 320px; padding: 16px 24px; border: none; border-radius: 14px; font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px; transition: all .2s; }
@@ -1233,16 +1255,10 @@ function getStyles() {
     .ek-opp-hand { display: flex; justify-content: center; height: 34px; position: relative; }
     .ek-opp-card { width: 22px; height: 32px; background: linear-gradient(160deg, #2a1a0a, #1a0a02); border: 1px solid rgba(255,144,32,0.25); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; margin-left: -7px; transform-origin: bottom center; }
     .ek-opp-card:first-child { margin-left: 0; }
-    .ek-opp-card-icon { font-size: 9px; opacity: 0.6; }
+    .ek-opp-card-img { width: 100%; height: 100%; display: block; object-fit: cover; }
     .ek-opp-pulse { position: absolute; inset: -4px; border-radius: 18px; border: 2px solid var(--ek-fire); animation: oppPulse 1.2s ease-in-out infinite; pointer-events: none; }
     @keyframes oppPulse { 0%,100% { opacity: .8; transform: scale(1); } 50% { opacity: .2; transform: scale(1.04); } }
     .ek-opp-dead-mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; }
-    .ek-opp-card-img {
-    width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
-}
 
     .ek-center-area { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 4px 0; }
     .ek-table-felt-game { width: min(480px, 90vw); background: radial-gradient(ellipse at center, #1e4530 0%, #122a1c 60%, #0c1e12 100%); border: 2px solid var(--ek-felt-border); border-radius: 24px; padding: 20px 20px 18px; box-shadow: inset 0 2px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 14px; }
@@ -1278,37 +1294,16 @@ function getStyles() {
     }
 
     /* ── Nope Banner ── */
-    .ek-nope-banner {
-      width: 100%;
-      border-radius: 14px;
-      padding: 12px 16px;
-      display: flex; flex-direction: column; gap: 10px;
-      animation: nopeBannerIn .3s ease;
-    }
+    .ek-nope-banner { width: 100%; border-radius: 14px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; animation: nopeBannerIn .3s ease; }
     @keyframes nopeBannerIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
-    .ek-nope-banner-active {
-      background: rgba(255, 90, 31, 0.15);
-      border: 1.5px solid rgba(255, 90, 31, 0.5);
-    }
-    .ek-nope-banner-noped {
-      background: rgba(255, 50, 50, 0.2);
-      border: 1.5px solid rgba(255, 50, 50, 0.6);
-    }
+    .ek-nope-banner-active { background: rgba(255, 90, 31, 0.15); border: 1.5px solid rgba(255, 90, 31, 0.5); }
+    .ek-nope-banner-noped { background: rgba(255, 50, 50, 0.2); border: 1.5px solid rgba(255, 50, 50, 0.6); }
     .ek-nope-banner-row { display: flex; align-items: center; gap: 10px; }
     .ek-nope-banner-icon { font-size: 22px; }
     .ek-nope-banner-text { flex: 1; font-size: 13px; line-height: 1.4; }
     .ek-noped-label { color: #ff5555; font-weight: 800; }
-    .ek-nope-timer {
-      font-family: 'Bebas Neue', sans-serif; font-size: 24px;
-      color: var(--ek-fire); letter-spacing: 1px; min-width: 28px; text-align: right;
-    }
-    .ek-nope-btn {
-      width: 100%; padding: 10px 16px; border: none; border-radius: 10px;
-      background: linear-gradient(130deg, #9b0000, #ff3030);
-      color: #fff; font-family: 'Nunito', sans-serif;
-      font-size: 14px; font-weight: 800; cursor: pointer;
-      animation: nopePulse .8s ease-in-out infinite alternate;
-    }
+    .ek-nope-timer { font-family: 'Bebas Neue', sans-serif; font-size: 24px; color: var(--ek-fire); letter-spacing: 1px; min-width: 28px; text-align: right; }
+    .ek-nope-btn { width: 100%; padding: 10px 16px; border: none; border-radius: 10px; background: linear-gradient(130deg, #9b0000, #ff3030); color: #fff; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; animation: nopePulse .8s ease-in-out infinite alternate; }
     @keyframes nopePulse { from { box-shadow: 0 0 8px rgba(255,50,50,0.4); } to { box-shadow: 0 0 20px rgba(255,50,50,0.8); } }
     .ek-nope-btn:hover { filter: brightness(1.15); }
     .ek-nope-wait { text-align: center; font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
@@ -1342,92 +1337,114 @@ function getStyles() {
     .ek-target-btn:disabled { opacity: 0.4; cursor: default; }
     .ek-target-avatar { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,144,32,0.2); border: 2px solid var(--ek-ember); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: var(--ek-ember); flex-shrink: 0; }
     .ek-target-count { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-left: auto; }
-
-    /* Favor give hand */
     .ek-favor-hand { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 4px; }
     .ek-favor-card { width: var(--ek-card-w); height: var(--ek-card-h); border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); cursor: pointer; position: relative; transition: transform .18s, border-color .18s; flex-shrink: 0; }
     .ek-favor-card:hover { transform: translateY(-8px) scale(1.06); border-color: var(--ek-ember); }
-
-    /* Pair target mini cards */
     .ek-opp-mini-cards { display: flex; gap: 2px; }
     .ek-opp-mini-card { font-size: 14px; }
 
-    /* ── Steal: pick a specific face-down card ── */
-    .ek-steal-grid {
-      display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;
-      margin: 4px 0; max-height: 46vh; overflow-y: auto; padding: 6px;
-    }
-    .ek-steal-card {
-      position: relative; width: 74px; height: 104px; padding: 0;
-      border: none; background: none; cursor: pointer;
-      border-radius: 10px; transform-origin: bottom center;
-      animation: stealCardIn .4s cubic-bezier(.34,1.56,.64,1) backwards;
-      transition: transform .18s cubic-bezier(.34,1.56,.64,1);
-    }
+    /* ── Steal panel ── */
+    .ek-steal-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 4px 0; max-height: 46vh; overflow-y: auto; padding: 6px; }
+    .ek-steal-card { position: relative; width: 74px; height: 104px; padding: 0; border: none; background: none; cursor: pointer; border-radius: 10px; transform-origin: bottom center; animation: stealCardIn .4s cubic-bezier(.34,1.56,.64,1) backwards; transition: transform .18s cubic-bezier(.34,1.56,.64,1); }
     @keyframes stealCardIn { from { opacity: 0; transform: translateY(16px) rotateX(40deg); } to { opacity: 1; transform: translateY(0) rotateX(0); } }
     .ek-steal-card:hover, .ek-steal-card-hover { transform: translateY(-10px) scale(1.07); }
-    .ek-steal-card-back {
-      width: 100%; height: 100%; border-radius: 10px;
-      background: linear-gradient(160deg, #3d1200, #1a0800);
-      border: 2px solid rgba(255,144,32,0.35);
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: border-color .18s, box-shadow .18s;
-    }
-    .ek-steal-card:hover .ek-steal-card-back, .ek-steal-card-hover .ek-steal-card-back {
-      border-color: var(--ek-ember);
-      box-shadow: 0 8px 22px rgba(255,90,31,0.45), 0 0 0 2px var(--ek-ember);
-    }
+    .ek-steal-card-back { width: 100%; height: 100%; border-radius: 10px; background: linear-gradient(160deg, #3d1200, #1a0800); border: 2px solid rgba(255,144,32,0.35); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: border-color .18s, box-shadow .18s; }
+    .ek-steal-card:hover .ek-steal-card-back, .ek-steal-card-hover .ek-steal-card-back { border-color: var(--ek-ember); box-shadow: 0 8px 22px rgba(255,90,31,0.45), 0 0 0 2px var(--ek-ember); }
     .ek-steal-card-icon { font-size: 26px; opacity: 0.5; }
     .ek-steal-card-q { font-family: 'Bebas Neue', sans-serif; font-size: 22px; color: rgba(255,144,32,0.7); letter-spacing: 1px; }
     .ek-steal-card-num { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.55); }
 
-    /* ── Action / function card play effect (flying card + ring burst) ── */
-    .ek-fx-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: flex; align-items: center; justify-content: center; }
-    .ek-fx-card {
-      width: 130px; height: 182px; border-radius: 14px; overflow: hidden;
-      border: 3px solid var(--fx-color, var(--ek-ember));
-      box-shadow: 0 0 40px var(--fx-color, var(--ek-ember)), 0 18px 50px rgba(0,0,0,0.6);
-      animation: fxCardPlay 1.05s cubic-bezier(.2,.8,.3,1) forwards;
-    }
-    .ek-fx-card img { width: 100%; height: 100%; object-fit: cover; }
-    @keyframes fxCardPlay {
-      0%   { opacity: 0; transform: translateY(120px) scale(.5) rotate(-12deg); }
-      22%  { opacity: 1; transform: translateY(0) scale(1.12) rotate(3deg); }
-      58%  { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
-      100% { opacity: 0; transform: translateY(-60px) scale(.85) rotate(0deg); }
-    }
-    .ek-fx-ring {
-      position: absolute; width: 130px; height: 130px; border-radius: 50%;
-      border: 4px solid var(--fx-color, var(--ek-ember));
-      animation: fxRing 1s ease-out forwards; animation-delay: .15s; opacity: 0;
-    }
-    .ek-fx-ring-2 { animation-delay: .32s; }
-    @keyframes fxRing {
-      0%   { opacity: .8; transform: scale(.3); }
-      100% { opacity: 0; transform: scale(3.2); }
-    }
-    .ek-fx-label {
-      position: absolute; bottom: 26%; font-family: 'Bebas Neue', sans-serif;
-      font-size: 38px; letter-spacing: 3px; color: #fff;
-      text-shadow: 0 2px 18px var(--fx-color, var(--ek-ember)), 0 0 30px var(--fx-color, var(--ek-ember));
-      animation: fxLabel 1.05s ease-out forwards;
-    }
-    @keyframes fxLabel {
-      0%   { opacity: 0; transform: translateY(20px) scale(.7); }
-      28%  { opacity: 1; transform: translateY(0) scale(1); }
-      70%  { opacity: 1; }
-      100% { opacity: 0; transform: translateY(-14px) scale(1.05); }
-    }
-    .ek-fx-spark {
-      position: absolute; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--fx-color, var(--ek-ember));
-      box-shadow: 0 0 10px var(--fx-color, var(--ek-ember));
-      animation: fxSpark .9s ease-out forwards;
-    }
-    @keyframes fxSpark {
-      0%   { opacity: 1; transform: translate(0,0) scale(1); }
-      100% { opacity: 0; transform: translate(var(--sx), var(--sy)) scale(.3); }
-    }
+    /* ══ CARD FLIP ANIMATION ══ */
+    /*
+      Cards use a 3D flip: back face visible first (rotateY 0),
+      then flips to reveal front face (rotateY 180).
+      The card container preserves-3d, each face is absolutely positioned.
+      When .ek-hand-card-new is present, it starts showing the back, then flips.
+    */
+      .ek-hand-card {
+        width: var(--ek-card-w);
+        height: var(--ek-card-h);
+        border-radius: 12px;
+        border: 2px solid rgba(255,255,255,0.1);
+        flex-shrink: 0;
+        cursor: pointer;
+        position: relative;
+        /* KHÔNG có perspective / transform-style: preserve-3d */
+        transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
+      }
+
+      .ek-card-face {
+        position: absolute; inset: 0;
+        border-radius: 10px; overflow: hidden;
+      }
+
+      /* Mặc định: chỉ hiện front face */
+      .ek-card-face-back  { display: none; }
+      .ek-card-face-front { display: block; z-index: 1; }
+
+      /* Khi là card mới: back face hiện, front ẩn ban đầu */
+      .ek-hand-card.ek-hand-card-new .ek-card-face-back {
+        display: block;
+        z-index: 2;
+        animation: faceHide 0.75s forwards;
+      }
+      .ek-hand-card.ek-hand-card-new .ek-card-face-front {
+        display: block;
+        z-index: 3;
+        animation: faceReveal 0.75s forwards;
+      }
+
+      /* Card container chỉ bay vào, KHÔNG rotate */
+      .ek-hand-card.ek-hand-card-new {
+        animation: cardSlideIn 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      }
+
+      @keyframes cardSlideIn {
+        0%   { transform: translateY(40px) scale(0.8); opacity: 0; }
+        60%  { transform: translateY(-8px) scale(1.08); opacity: 1; }
+        100% { transform: translateY(0px)  scale(1);   opacity: 1; }
+      }
+
+      /* Back face: scaleX 1→0 (nửa đầu animation = "gấp vào") */
+      @keyframes faceHide {
+        0%   { transform: scaleX(1); opacity: 1; }
+        40%  { transform: scaleX(0); opacity: 1; }
+        41%  { transform: scaleX(0); opacity: 0; }
+        100% { transform: scaleX(0); opacity: 0; }
+      }
+
+      /* Front face: scaleX 0→1 (nửa sau animation = "mở ra") */
+      @keyframes faceReveal {
+        0%   { transform: scaleX(0); opacity: 0; }
+        40%  { transform: scaleX(0); opacity: 0; }
+        41%  { transform: scaleX(0); opacity: 1; }
+        100% { transform: scaleX(1); opacity: 1; }
+      }
+
+      /* Hover / selected (chỉ cho card không đang animate) */
+      .ek-hand-card:hover:not(.ek-hand-card-disabled):not(.ek-hand-card-new) {
+        transform: translateY(-14px) scale(1.06);
+        border-color: var(--card-color, var(--ek-ember));
+        box-shadow: 0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px var(--card-color, var(--ek-ember));
+      }
+      .ek-hand-card-selected:not(.ek-hand-card-new) {
+        transform: translateY(-22px) scale(1.08) !important;
+        border-color: var(--card-color, var(--ek-fire)) !important;
+        box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 16px 36px rgba(255,90,31,0.45) !important;
+      }
+      .ek-hand-card-disabled { opacity: 0.55; cursor: default; }
+      .ek-hand-card-nopeable {
+        opacity: 1 !important; cursor: pointer !important;
+        border-color: rgba(255,50,50,0.6) !important;
+        box-shadow: 0 0 14px rgba(255,50,50,0.5), 0 0 0 2px rgba(255,50,50,0.4) !important;
+        animation: nopePulse .8s ease-in-out infinite alternate;
+      }
+      .ek-card-selected-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0.12) 0%, transparent 70%); pointer-events: none; z-index: 10; }
+      .ek-nope-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,50,50,0.25) 0%, transparent 70%); pointer-events: none; z-index: 10; }
+      .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; z-index: 5; }
+      .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
+    .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; z-index: 5; }
+    .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
     /* ══ MY HAND ══ */
     .ek-my-zone { width: 100%; flex-shrink: 0; background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%); border-top: 1px solid rgba(255,255,255,0.06); padding: 10px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -1440,24 +1457,210 @@ function getStyles() {
     .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 8px; overflow-x: auto; padding: 8px 12px 6px; scrollbar-width: none; -ms-overflow-style: none; width: 100%; min-height: calc(var(--ek-card-h) + 28px); align-items: flex-end; }
     .ek-hand-fan::-webkit-scrollbar { display: none; }
 
-    .ek-hand-card { width: var(--ek-card-w); height: var(--ek-card-h); border-radius: 12px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); flex-shrink: 0; cursor: pointer; position: relative; transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s; }
-    .ek-hand-card:hover:not(.ek-hand-card-disabled) { transform: translateY(-14px) scale(1.06); border-color: var(--card-color, var(--ek-ember)); box-shadow: 0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px var(--card-color, var(--ek-ember)); }
-    .ek-hand-card-selected { transform: translateY(-22px) scale(1.08) !important; border-color: var(--card-color, var(--ek-fire)) !important; box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 16px 36px rgba(255,90,31,0.45) !important; }
-    .ek-hand-card-disabled { opacity: 0.55; cursor: default; }
-    /* Nopeable card highlight — glows red when nope window is open */
-    .ek-hand-card-nopeable { opacity: 1 !important; cursor: pointer !important; border-color: rgba(255,50,50,0.6) !important; box-shadow: 0 0 14px rgba(255,50,50,0.5), 0 0 0 2px rgba(255,50,50,0.4) !important; animation: nopePulse .8s ease-in-out infinite alternate; }
-    .ek-hand-card .ek-card-img { width: 100%; height: 100%; object-fit: cover; }
-    .ek-card-selected-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0.12) 0%, transparent 70%); pointer-events: none; }
-    .ek-nope-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,50,50,0.25) 0%, transparent 70%); pointer-events: none; }
-    .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; }
-    .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
-
     .ek-action-strip { display: flex; gap: 10px; width: 100%; justify-content: center; max-width: 480px; }
     .ek-action-btn { flex: 1; max-width: 220px; padding: 13px 20px; border: none; border-radius: 12px; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: .5px; }
     .ek-action-play { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 4px 18px rgba(255,90,31,0.4); }
     .ek-action-play:hover { filter: brightness(1.12); transform: translateY(-1px); }
     .ek-action-draw { background: rgba(255,255,255,0.06); color: var(--ek-text); border: 1px solid rgba(255,255,255,0.12); }
     .ek-action-draw:hover { background: rgba(255,255,255,0.1); }
+
+    /* ── Action FX ── */
+    .ek-fx-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+    .ek-fx-card { width: 130px; height: 182px; border-radius: 14px; overflow: hidden; border: 3px solid var(--fx-color, var(--ek-ember)); box-shadow: 0 0 40px var(--fx-color, var(--ek-ember)), 0 18px 50px rgba(0,0,0,0.6); animation: fxCardPlay 1.05s cubic-bezier(.2,.8,.3,1) forwards; }
+    .ek-fx-card img { width: 100%; height: 100%; object-fit: cover; }
+    @keyframes fxCardPlay {
+      0%   { opacity: 0; transform: translateY(120px) scale(.5) rotate(-12deg); }
+      22%  { opacity: 1; transform: translateY(0) scale(1.12) rotate(3deg); }
+      58%  { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+      100% { opacity: 0; transform: translateY(-60px) scale(.85) rotate(0deg); }
+    }
+    .ek-fx-ring { position: absolute; width: 130px; height: 130px; border-radius: 50%; border: 4px solid var(--fx-color, var(--ek-ember)); animation: fxRing 1s ease-out forwards; animation-delay: .15s; opacity: 0; }
+    .ek-fx-ring-2 { animation-delay: .32s; }
+    @keyframes fxRing { 0% { opacity: .8; transform: scale(.3); } 100% { opacity: 0; transform: scale(3.2); } }
+    .ek-fx-label { position: absolute; bottom: 26%; font-family: 'Bebas Neue', sans-serif; font-size: 38px; letter-spacing: 3px; color: #fff; text-shadow: 0 2px 18px var(--fx-color, var(--ek-ember)), 0 0 30px var(--fx-color, var(--ek-ember)); animation: fxLabel 1.05s ease-out forwards; }
+    @keyframes fxLabel {
+      0%   { opacity: 0; transform: translateY(20px) scale(.7); }
+      28%  { opacity: 1; transform: translateY(0) scale(1); }
+      70%  { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-14px) scale(1.05); }
+    }
+    .ek-fx-spark { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--fx-color, var(--ek-ember)); box-shadow: 0 0 10px var(--fx-color, var(--ek-ember)); animation: fxSpark .9s ease-out forwards; }
+    @keyframes fxSpark {
+      0%   { opacity: 1; transform: translate(0,0) scale(1); }
+      100% { opacity: 0; transform: translate(var(--sx), var(--sy)) scale(.3); }
+    }
+
+    /* ══ BOMB EXPLOSION EFFECT ══ */
+    .ek-bomb-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+      /* Screen shake */
+      animation: bombShake 0.55s cubic-bezier(.36,.07,.19,.97) forwards;
+    }
+    @keyframes bombShake {
+      0%  { transform: translate(0,0) rotate(0deg); }
+      10% { transform: translate(-8px, -4px) rotate(-1.5deg); }
+      20% { transform: translate(10px, 5px) rotate(1.5deg); }
+      30% { transform: translate(-9px, 2px) rotate(-1deg); }
+      40% { transform: translate(8px, -5px) rotate(1deg); }
+      50% { transform: translate(-5px, 4px) rotate(-.5deg); }
+      60% { transform: translate(4px, -3px) rotate(.5deg); }
+      70% { transform: translate(-3px, 2px) rotate(-.2deg); }
+      80% { transform: translate(2px, -1px) rotate(.1deg); }
+      100% { transform: translate(0,0) rotate(0deg); }
+    }
+
+    /* Screen white flash */
+    .ek-bomb-flash {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, rgba(255,230,100,0.95) 0%, rgba(255,80,0,0.7) 40%, transparent 70%);
+      animation: bombFlash 0.7s ease-out forwards;
+      z-index: 1;
+    }
+    @keyframes bombFlash {
+      0%   { opacity: 0; }
+      8%   { opacity: 1; }
+      35%  { opacity: 0.6; }
+      100% { opacity: 0; }
+    }
+
+    /* Shockwave rings */
+    .ek-bomb-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 4px solid rgba(255, 140, 0, 0.8);
+      z-index: 4; pointer-events: none;
+      animation: bombRingExpand 0.9s cubic-bezier(0.1, 0.5, 0.3, 1) forwards;
+    }
+    .ek-bomb-ring-1 { width: 60px; height: 60px; animation-delay: 0.05s; border-color: rgba(255, 220, 50, 0.9); border-width: 5px; }
+    .ek-bomb-ring-2 { width: 60px; height: 60px; animation-delay: 0.18s; border-color: rgba(255, 100, 0, 0.7); border-width: 3px; }
+    .ek-bomb-ring-3 { width: 60px; height: 60px; animation-delay: 0.33s; border-color: rgba(255, 50, 0, 0.5); border-width: 2px; }
+    @keyframes bombRingExpand {
+      0%   { opacity: 1; transform: scale(0.1); }
+      60%  { opacity: 0.7; }
+      100% { opacity: 0; transform: scale(8); }
+    }
+
+    /* Fire/ember particles */
+    .ek-bomb-particle {
+      position: absolute;
+      width: var(--size, 10px);
+      height: var(--size, 10px);
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff7a0, #ff6600, #cc2200);
+      box-shadow: 0 0 8px #ff4400, 0 0 20px #ff2200;
+      z-index: 5;
+      animation: bombParticle 0.95s cubic-bezier(0.1, 0.8, 0.3, 1) var(--delay, 0s) forwards;
+    }
+    @keyframes bombParticle {
+      0%  {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+      }
+      100% {
+        opacity: 0;
+        transform:
+          rotate(var(--angle))
+          translateX(var(--dist))
+          scale(0.3);
+      }
+    }
+
+    /* Central bomb card slam */
+    .ek-bomb-card-slam {
+      position: relative;
+      z-index: 8;
+      animation: bombCardSlam 2.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+    @keyframes bombCardSlam {
+      0%   { transform: scale(0) rotate(-20deg); opacity: 0; }
+      12%  { transform: scale(1.5) rotate(5deg); opacity: 1; }
+      22%  { transform: scale(1.2) rotate(-3deg); opacity: 1; }
+      32%  { transform: scale(1.3) rotate(2deg); opacity: 1; }
+      55%  { transform: scale(1.25) rotate(0deg); opacity: 1; }
+      80%  { transform: scale(1.25) rotate(0deg); opacity: 1; }
+      100% { transform: scale(0.8) rotate(-5deg); opacity: 0; }
+    }
+    .ek-bomb-card-inner {
+      width: 160px; height: 224px;
+      border-radius: 16px; overflow: hidden;
+      border: 3px solid #ff4400;
+      box-shadow:
+        0 0 0 2px #ff8800,
+        0 0 40px #ff4400,
+        0 0 80px rgba(255,68,0,0.6),
+        0 24px 60px rgba(0,0,0,0.8);
+      position: relative;
+    }
+    .ek-bomb-card-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ek-bomb-emoji {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 72px;
+      background: rgba(0,0,0,0.4);
+      animation: bombEmojiPulse 0.4s ease-in-out 0.12s 3 alternate;
+    }
+    @keyframes bombEmojiPulse {
+      from { transform: scale(1); filter: brightness(1); }
+      to   { transform: scale(1.2); filter: brightness(1.5); }
+    }
+
+    /* Text burst */
+    .ek-bomb-text {
+      position: absolute;
+      z-index: 9;
+      top: 14%;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      animation: bombTextBurst 2.5s ease forwards;
+      pointer-events: none;
+    }
+    @keyframes bombTextBurst {
+      0%   { opacity: 0; transform: scale(0.3) translateY(20px); }
+      18%  { opacity: 1; transform: scale(1.15) translateY(-4px); }
+      30%  { transform: scale(1) translateY(0); }
+      72%  { opacity: 1; }
+      100% { opacity: 0; transform: scale(0.9) translateY(-20px); }
+    }
+    .ek-bomb-text-main {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(64px, 15vw, 96px);
+      letter-spacing: 6px;
+      color: #fff;
+      text-shadow:
+        0 0 20px #ff4400,
+        0 0 40px #ff2200,
+        0 0 80px #ff0000,
+        4px 4px 0 #8b0000,
+        -4px -4px 0 #cc2200;
+      line-height: 1;
+    }
+    .ek-bomb-text-sub {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(16px, 4vw, 22px);
+      letter-spacing: 4px;
+      color: #ff9933;
+      text-shadow: 0 0 12px #ff4400;
+    }
+
+    /* Floating embers */
+    .ek-bomb-ember {
+      position: absolute;
+      bottom: 0;
+      left: var(--ex, 50%);
+      width: var(--size, 4px);
+      height: var(--size, 4px);
+      border-radius: 50%;
+      background: radial-gradient(circle, #ffee88, #ff6600);
+      box-shadow: 0 0 6px #ff4400;
+      z-index: 6;
+      animation: emberFloat 1.8s ease-out var(--delay, 0s) forwards;
+    }
+    @keyframes emberFloat {
+      0%   { opacity: 1; transform: translateY(0) translateX(0) scale(1); }
+      40%  { opacity: 0.9; transform: translateY(-40vh) translateX(calc(sin(var(--delay, 0s) * 50) * 30px)) scale(0.8); }
+      100% { opacity: 0; transform: translateY(-80vh) translateX(calc(sin(var(--delay, 0s) * 50) * 60px)) scale(0.3); }
+    }
 
     .ek-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: linear-gradient(120deg, #c02800, var(--ek-fire)); color: #fff; padding: 11px 22px; border-radius: 24px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 20px rgba(255,90,31,0.4); z-index: 999; animation: toastIn .25s ease; pointer-events: none; }
     @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
