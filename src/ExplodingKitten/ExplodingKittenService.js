@@ -211,6 +211,75 @@ function getNextLivingPlayer(players, currentRole) {
   return alive[(idx + 1) % alive.length];
 }
 
+function anyPlayerHasNope(players, excludeRole = null) {
+  return Object.entries(players || {}).some(([role, p]) => {
+    if (role === excludeRole) return false;
+    if (p?.alive === false) return false;
+    return (p?.hand || []).some(c => c.type === CARD_TYPES.NOPE);
+  });
+}
+
+function buildResolutionUpdates(pending, game) {
+  switch (pending.type) {
+    case "skip":
+    case "attack":
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+        "game/turn": pending.resolvedTurn,
+        "game/attackStack": pending.resolvedAttackStack,
+      };
+    case "shuffle":
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+    case "see_the_future":
+      return {
+        "game/seeTheFuture": { cards: pending.top3, forPlayer: pending.by },
+        "game/phase": "see_future",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+    case "favor":
+      return {
+        "game/phase": "favor_give",
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+    case "pair":
+      return {
+        "game/phase": "pair_target",
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+    default:
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+  }
+}
+
+// Updates để khôi phục trạng thái trước đó khi 1 pending action bị Nope.
+function buildNopedRestoreUpdates(pending, game) {
+  return {
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/nopeWindow": null,
+    "game/nopeChain": [],
+    "game/turn": pending.savedTurn || game.turn,
+    "game/attackStack": pending.savedAttackStack ?? game.attackStack,
+  };
+}
+
 // ─── Game actions ────────────────────────────────────────────────────────────
 
 export async function startGame(roomId) {
@@ -292,22 +361,43 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       ? `🚫 ${players[playerRole].name} Noped! Action canceled.`
       : `↩️ ${players[playerRole].name} Noped the Nope! Action restored.`;
 
-    await update(ref(db, `rooms/${roomId}`), {
-      [`players/${playerRole}/hand`]: newHand,
-      "game/discardPile": discard,
-      "game/nopeChain": nopeChain,
-      // Keep nope window open so others can counter-nope
-      "game/nopeWindow": {
-        open: true,
-        expiresAt: Date.now() + 5000,
-        pendingType: prev.type,
-        isCurrentlyNoped: isEffective,
-      },
-      "game/phase": isEffective
-        ? "nope_window" // still open for counter-nope
-        : (prev?.nopeWindowPhase || "play"),
-      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
-    });
+    const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+    const canCounterNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+    if (canCounterNope) {
+      // Còn người có thể counter-nope → mở/giữ nope window như cũ
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/nopeChain": nopeChain,
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: prev.type,
+          isCurrentlyNoped: isEffective,
+        },
+        "game/phase": isEffective
+          ? "nope_window"
+          : (prev?.nopeWindowPhase || "play"),
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      // Không ai còn Nope → resolve ngay, khỏi chờ
+      const resolutionUpdates = isEffective
+        ? buildNopedRestoreUpdates(prev, game)
+        : buildResolutionUpdates(prev, game);
+
+      const logEntries = isEffective
+        ? ["🚫 Action was Noped!", logMsg, ...(game.log || [])]
+        : [logMsg, ...(game.log || [])];
+
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        ...resolutionUpdates,
+        "game/log": logEntries.slice(0, 20),
+      });
+    }
     return;
   }
 
@@ -320,26 +410,42 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     const pairDiscard = [...(game.discardPile || []), card, partnerCard];
     const logMsg = `${players[playerRole].name} played a pair of ${CARD_META[card.type]?.label ?? card.type}!`;
 
-    await update(ref(db, `rooms/${roomId}`), {
-      [`players/${playerRole}/hand`]: finalHand,
-      "game/discardPile": pairDiscard,
-      "game/phase": "pair_target",
-      "game/nopeChain": [],
-      "game/nopeWindow": {
-        open: true,
-        expiresAt: Date.now() + 5000,
-        pendingType: "pair",
-        isCurrentlyNoped: false,
-      },
-      "game/pendingAction": {
-        type: "pair",
-        by: playerRole,
-        cardType: card.type,
-        savedAttackStack: game.attackStack || 0,
-        nopeWindowPhase: "pair_target",
-      },
-      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
-    });
+    const pendingObj = {
+      type: "pair",
+      by: playerRole,
+      cardType: card.type,
+      savedAttackStack: game.attackStack || 0,
+      savedTurn: game.turn,
+      nopeWindowPhase: "pair_target",
+    };
+
+    const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: finalHand } };
+    const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+    if (canNope) {
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: finalHand,
+        "game/discardPile": pairDiscard,
+        "game/phase": "pair_target",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "pair",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": pendingObj,
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: finalHand,
+        "game/discardPile": pairDiscard,
+        "game/pendingAction": pendingObj,
+        ...buildResolutionUpdates(pendingObj, game),
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    }
     return;
   }
 
@@ -353,69 +459,94 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     case CARD_TYPES.SKIP: {
       const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
       const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
-      await update(ref(db, `rooms/${roomId}`), {
-        [`players/${playerRole}/hand`]: newHand,
-        "game/discardPile": discard,
-        "game/turn": nextPlayer,
-        "game/attackStack": turnsOwed,
-        "game/phase": "nope_window",
-        "game/nopeChain": [],
-        "game/nopeWindow": {
-          open: true,
-          expiresAt: Date.now() + 5000,
-          pendingType: "skip",
-          isCurrentlyNoped: false,
-        },
-        "game/pendingAction": {
-          type: "skip",
-          by: playerRole,
-          resolvedTurn: nextPlayer,
-          resolvedAttackStack: turnsOwed,
-          savedAttackStack: game.attackStack || 0,
-          savedTurn: game.turn,
-          nopeWindowPhase: "play",
-        },
-        "game/log": [logBase + " Turn skipped.", ...(game.log || [])].slice(0, 20),
-      });
+      const pendingObj = {
+        type: "skip",
+        by: playerRole,
+        resolvedTurn: nextPlayer,
+        resolvedAttackStack: turnsOwed,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/turn": nextPlayer,
+          "game/attackStack": turnsOwed,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "skip",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": pendingObj,
+          "game/log": [logBase + " Turn skipped.", ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logBase + " Turn skipped.", ...(game.log || [])].slice(0, 20),
+        });
+      }
       break;
     }
 
     case CARD_TYPES.ATTACK: {
       const nextPlayer = getNextLivingPlayer(players, playerRole);
       const newStack = (game.attackStack || 0) + 2;
-      await update(ref(db, `rooms/${roomId}`), {
-        [`players/${playerRole}/hand`]: newHand,
-        "game/discardPile": discard,
-        "game/phase": "nope_window",
-        "game/nopeChain": [],
-        "game/nopeWindow": {
-          open: true,
-          expiresAt: Date.now() + 5000,
-          pendingType: "attack",
-          isCurrentlyNoped: false,
-        },
-        "game/pendingAction": {
-          type: "attack",
-          by: playerRole,
-          resolvedTurn: nextPlayer,
-          resolvedAttackStack: newStack,
-          savedAttackStack: game.attackStack || 0,
-          savedTurn: game.turn,
-          nopeWindowPhase: "play",
-        },
-        "game/log": [
-          logBase + ` ${players[nextPlayer].name} must take ${newStack} turns!`,
-          ...(game.log || []),
-        ].slice(0, 20),
-      });
+      const pendingObj = {
+        type: "attack",
+        by: playerRole,
+        resolvedTurn: nextPlayer,
+        resolvedAttackStack: newStack,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+      const logMsg = logBase + ` ${players[nextPlayer].name} must take ${newStack} turns!`;
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "attack",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": pendingObj,
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      }
       break;
     }
 
     case CARD_TYPES.FAVOR: {
-      // Step 1: attacker picks target (UI-driven, targetRole passed in extraData)
       const { targetRole } = extraData;
       if (!targetRole) {
-        // Phase: active player chooses who to favor
+        // Phase: active player chooses who to favor (giữ nguyên, không có nope window)
         await update(ref(db, `rooms/${roomId}`), {
           [`players/${playerRole}/hand`]: newHand,
           "game/discardPile": discard,
@@ -432,84 +563,121 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
           "game/log": [logBase, ...(game.log || [])].slice(0, 20),
         });
       } else {
-        // Step 2: target chosen → open nope window, then target gives card
-        await update(ref(db, `rooms/${roomId}`), {
-          "game/phase": "nope_window",
-          "game/nopeChain": [],
-          "game/nopeWindow": {
-            open: true,
-            expiresAt: Date.now() + 5000,
-            pendingType: "favor",
-            isCurrentlyNoped: false,
-          },
-          "game/pendingAction": {
-            type: "favor",
-            by: playerRole,
-            target: targetRole,
-            savedAttackStack: game.attackStack || 0,
-            savedTurn: game.turn,
-            nopeWindowPhase: "favor_give",
-          },
-          "game/log": [
-            logBase + ` ${players[targetRole].name} must give a card.`,
-            ...(game.log || []),
-          ].slice(0, 20),
-        });
+        const pendingObj = {
+          type: "favor",
+          by: playerRole,
+          target: targetRole,
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "favor_give",
+        };
+        const canNope = anyPlayerHasNope(players, playerRole); // hand đã được trừ ở step 1
+        const logMsg = logBase + ` ${players[targetRole].name} must give a card.`;
+
+        if (canNope) {
+          await update(ref(db, `rooms/${roomId}`), {
+            "game/phase": "nope_window",
+            "game/nopeChain": [],
+            "game/nopeWindow": {
+              open: true,
+              expiresAt: Date.now() + 5000,
+              pendingType: "favor",
+              isCurrentlyNoped: false,
+            },
+            "game/pendingAction": pendingObj,
+            "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+          });
+        } else {
+          await update(ref(db, `rooms/${roomId}`), {
+            "game/pendingAction": pendingObj,
+            ...buildResolutionUpdates(pendingObj, game),
+            "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+          });
+        }
       }
       break;
     }
 
     case CARD_TYPES.SHUFFLE: {
       const shuffled = shuffle(game.drawPile || []);
-      await update(ref(db, `rooms/${roomId}`), {
-        [`players/${playerRole}/hand`]: newHand,
-        "game/discardPile": discard,
-        "game/drawPile": shuffled,
-        "game/phase": "nope_window",
-        "game/nopeChain": [],
-        "game/nopeWindow": {
-          open: true,
-          expiresAt: Date.now() + 5000,
-          pendingType: "shuffle",
-          isCurrentlyNoped: false,
-        },
-        "game/pendingAction": {
-          type: "shuffle",
-          by: playerRole,
-          shuffledPile: shuffled,
-          originalPile: game.drawPile || [],
-          savedAttackStack: game.attackStack || 0,
-          savedTurn: game.turn,
-          nopeWindowPhase: "play",
-        },
-        "game/log": [logBase, ...(game.log || [])].slice(0, 20),
-      });
+      const pendingObj = {
+        type: "shuffle",
+        by: playerRole,
+        shuffledPile: shuffled,
+        originalPile: game.drawPile || [],
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/drawPile": shuffled,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "shuffle",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": pendingObj,
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/drawPile": shuffled,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      }
       break;
     }
 
     case CARD_TYPES.SEE_THE_FUTURE: {
       const top3 = (game.drawPile || []).slice(-3).reverse();
-      await update(ref(db, `rooms/${roomId}`), {
-        [`players/${playerRole}/hand`]: newHand,
-        "game/discardPile": discard,
-        "game/phase": "nope_window",
-        "game/nopeChain": [],
-        "game/nopeWindow": {
-          open: true,
-          expiresAt: Date.now() + 5000,
-          pendingType: "see_the_future",
-          isCurrentlyNoped: false,
-        },
-        "game/pendingAction": {
-          type: "see_the_future",
-          by: playerRole,
-          top3,
-          savedAttackStack: game.attackStack || 0,
-          savedTurn: game.turn,
-          nopeWindowPhase: "play",
-        },
-        "game/log": [logBase, ...(game.log || [])].slice(0, 20),
-      });
+      const pendingObj = {
+        type: "see_the_future",
+        by: playerRole,
+        top3,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": {
+            open: true,
+            expiresAt: Date.now() + 5000,
+            pendingType: "see_the_future",
+            isCurrentlyNoped: false,
+          },
+          "game/pendingAction": pendingObj,
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      }
       break;
     }
 
@@ -522,7 +690,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
 export async function resolveNopeWindow(roomId) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   const room = snap.val();
-  const { game, players } = room;
+  const { game } = room;
   const pending = game?.pendingAction;
   const nopeWindow = game?.nopeWindow;
 
@@ -534,78 +702,14 @@ export async function resolveNopeWindow(roomId) {
   if (isNoped) {
     // Action was noped — restore state before the card was played
     await update(ref(db, `rooms/${roomId}`), {
-      "game/phase": "play",
-      "game/pendingAction": null,
-      "game/nopeWindow": null,
-      "game/nopeChain": [],
-      "game/turn": pending.savedTurn || game.turn,
-      "game/attackStack": pending.savedAttackStack ?? game.attackStack,
+      ...buildNopedRestoreUpdates(pending, game),
       "game/log": ["🚫 Action was Noped!", ...(game.log || [])].slice(0, 20),
     });
     return;
   }
 
   // Not noped — resolve the action
-  switch (pending.type) {
-    case "skip":
-    case "attack": {
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/phase": "play",
-        "game/pendingAction": null,
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-        "game/turn": pending.resolvedTurn,
-        "game/attackStack": pending.resolvedAttackStack,
-      });
-      break;
-    }
-    case "shuffle": {
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/phase": "play",
-        "game/pendingAction": null,
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-        // drawPile was already shuffled when card was played
-      });
-      break;
-    }
-    case "see_the_future": {
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/seeTheFuture": { cards: pending.top3, forPlayer: pending.by },
-        "game/phase": "see_future",
-        "game/pendingAction": null,
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-      });
-      break;
-    }
-    case "favor": {
-      // Move to favor_give phase: target must now choose a card
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/phase": "favor_give",
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-      });
-      break;
-    }
-    case "pair": {
-      // Move to pair_target phase: attacker chooses who to steal from
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/phase": "pair_target",
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-      });
-      break;
-    }
-    default: {
-      await update(ref(db, `rooms/${roomId}`), {
-        "game/phase": "play",
-        "game/pendingAction": null,
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-      });
-    }
-  }
+  await update(ref(db, `rooms/${roomId}`), buildResolutionUpdates(pending, game));
 }
 
 export async function drawCard(roomId, playerRole) {
@@ -733,19 +837,16 @@ export async function giveFavorCard(roomId, giverRole, cardId) {
   const receiverHand = [...(players[pending.by].hand || []), card];
   const logMsg = `${players[giverRole].name} gave ${CARD_META[card.type]?.label ?? card.type} to ${players[pending.by].name}.`;
 
-  const attackStack = game.attackStack || 0;
-  const newAttackStack = Math.max(0, attackStack - 1);
-  const nextPlayer =
-    newAttackStack > 0 ? pending.by : getNextLivingPlayer(players, pending.by);
-
+  // Favor doesn't end the turn — the requester continues their turn
+  // (and still needs to draw a card eventually), same as a Cat Pair steal.
   await update(ref(db, `rooms/${roomId}`), {
     [`players/${giverRole}/hand`]: newGiverHand,
     [`players/${pending.by}/hand`]: receiverHand,
     "game/phase": "play",
     "game/pendingAction": null,
     "game/nopeWindow": null,
-    "game/turn": nextPlayer,
-    "game/attackStack": newAttackStack,
+    "game/turn": pending.by,
+    "game/attackStack": game.attackStack || 0,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
   });
 }
