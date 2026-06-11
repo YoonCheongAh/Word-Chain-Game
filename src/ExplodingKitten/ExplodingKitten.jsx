@@ -631,7 +631,7 @@ function GameBoardScreen({
                 >
                   <div className="ek-card-back">
                     <img
-                      src="/Resources/exploding kitten/backcard.png"
+                      src="/Resources/exploding kitten/backcard.webp"
                       alt="Draw pile card back"
                       className="ek-card-back-img"
                       onError={e => {
@@ -641,12 +641,14 @@ function GameBoardScreen({
                     />
                     <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
                   </div>
-                  <div className="ek-pile-count-badge">{drawPile.length}</div>
+                  {drawPile.length > 0 && (
+                    <div className="ek-pile-count-badge">{drawPile.length}</div>
+                  )}
                 </div>
-                {drawAnim && (
+                {drawAnim !== 0 && (
                   <div className="ek-draw-fly" key={drawAnim}>
                     <img
-                      src="/Resources/exploding kitten/backcard.png"
+                      src="/Resources/exploding kitten/backcard.webp"
                       alt=""
                       className="ek-card-back-img"
                       onError={e => { e.target.style.display = 'none'; }}
@@ -736,7 +738,7 @@ function GameBoardScreen({
                   {/* Back face (shown during flip-in) */}
                   <div className="ek-card-face ek-card-face-back">
                     <img
-                      src="/Resources/exploding kitten/backcard.png"
+                      src="/Resources/exploding kitten/backcard.webp"
                       alt="card back"
                       className="ek-card-img"
                       onError={e => { e.target.style.display = 'none'; }}
@@ -995,8 +997,13 @@ function PairTargetPanel({ players, myRole, onSteal }) {
               onClick={() => onSteal(chosenTarget, i)}
             >
               <div className="ek-steal-card-back">
-                <span className="ek-steal-card-icon">🐱</span>
-                <span className="ek-steal-card-q">?</span>
+                <img
+                  src="/Resources/exploding kitten/backcard.webp"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }}
+                />
               </div>
               <div className="ek-steal-card-num">#{i + 1}</div>
             </button>
@@ -1065,7 +1072,7 @@ function OpponentSlot({ player, role, position, isActive, isDead }) {
             }}
           >
             <img
-              src="/Resources/exploding kitten/backcard.png"
+              src="/Resources/exploding kitten/backcard.webp"
               alt="Card Back"
               className="ek-opp-card-img"
               draggable={false}
