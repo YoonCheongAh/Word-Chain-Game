@@ -654,41 +654,43 @@ function GameBoardScreen({
             </button>
           </div>
 
-          <div className="ek-hand-fan">
-            {myHand.length > 0 ? myHand.map((card, idx) => {
-              const isSelected = selectedCards.some(s => s.id === card.id);
-              const meta = CARD_META[card.type];
-              const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
-              const isNew = newCardIds.has(card.id);
-              return (
-                <HandCard
-                  key={card.id}
-                  card={card}
-                  meta={meta}
-                  isSelected={isSelected}
-                  isNopeable={isNopeable}
-                  isNew={isNew}
-                  isDisabled={!myTurn && !isNopeable}
-                  zIndex={isSelected ? 50 : idx}
-                  onClick={onCardClick}
-                />
-              );
-            }) : (
-              <div className="ek-hand-empty">No cards in hand</div>
+          <div className="ek-hand-and-actions">
+            <div className="ek-hand-fan">
+              {myHand.length > 0 ? myHand.map((card, idx) => {
+                const isSelected = selectedCards.some(s => s.id === card.id);
+                const meta = CARD_META[card.type];
+                const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
+                const isNew = newCardIds.has(card.id);
+                return (
+                  <HandCard
+                    key={card.id}
+                    card={card}
+                    meta={meta}
+                    isSelected={isSelected}
+                    isNopeable={isNopeable}
+                    isNew={isNew}
+                    isDisabled={!myTurn && !isNopeable}
+                    zIndex={isSelected ? 50 : idx}
+                    onClick={onCardClick}
+                  />
+                );
+              }) : (
+                <div className="ek-hand-empty">No cards in hand</div>
+              )}
+            </div>
+
+            {myTurn && phase === 'play' && (
+              <div className="ek-action-strip">
+                {selectedCards.length > 0 && (
+                  <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
+                    ▶ Play{selectedCards.length > 0 ? ` ${CARD_META[selectedCards[0]?.type]?.label || 'Card'}` : ''}
+                    {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
+                  </button>
+                )}
+                <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
+              </div>
             )}
           </div>
-
-          {myTurn && phase === 'play' && (
-            <div className="ek-action-strip">
-              {selectedCards.length > 0 && (
-                <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
-                  ▶ Play {CARD_META[selectedCards[0]?.type]?.label || 'Card'}
-                  {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
-                </button>
-              )}
-              <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -748,7 +750,7 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
   );
 });
 
-/* ─── CARD PLAY EFFECT ───────────────────────────────────────────────── */
+/* ─── CARD PLAY EFFECT ────────────────��──────────────────────────────── */
 const CardPlayEffect = memo(function CardPlayEffect({ type }) {
   const meta = CARD_META[type];
   const color = meta?.color || '#FF9020';
@@ -1011,10 +1013,28 @@ function getStyles() {
       --ek-surface2: #222222;
       --ek-text: #F0EDE8;
       --ek-text-muted: #888880;
-      --ek-card-w: 132px;
-      --ek-card-h: 186px;
+      --ek-card-w: 208px;
+      --ek-card-h: 293px;
       --ek-pile-w: 116px;
       --ek-pile-h: 162px;
+    }
+    @media (max-width: 1024px) {
+      :root {
+        --ek-card-w: 182px;
+        --ek-card-h: 256px;
+      }
+    }
+    @media (max-width: 768px) {
+      :root {
+        --ek-card-w: 156px;
+        --ek-card-h: 220px;
+      }
+    }
+    @media (max-width: 480px) {
+      :root {
+        --ek-card-w: 130px;
+        --ek-card-h: 183px;
+      }
     }
 
     .ek-root {
@@ -1298,14 +1318,14 @@ function getStyles() {
     }
 
     .ek-hand-card:hover:not(.ek-hand-card-disabled):not(.ek-hand-card-new) {
-      transform: translateY(-14px) scale(1.06);
+      transform: translateY(-18px) scale(1.08);
       border-color: var(--card-color, var(--ek-ember));
-      box-shadow: 0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px var(--card-color, var(--ek-ember));
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6), 0 0 0 2px var(--card-color, var(--ek-ember));
     }
     .ek-hand-card-selected:not(.ek-hand-card-new) {
-      transform: translateY(-22px) scale(1.08) !important;
+      transform: translateY(-26px) scale(1.1) !important;
       border-color: var(--card-color, var(--ek-fire)) !important;
-      box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 16px 36px rgba(255,90,31,0.45) !important;
+      box-shadow: 0 0 0 2px var(--card-color, var(--ek-fire)), 0 20px 44px rgba(255,90,31,0.5) !important;
     }
     .ek-hand-card-disabled { opacity: 0.55; cursor: default; }
     .ek-hand-card-nopeable {
@@ -1327,15 +1347,34 @@ function getStyles() {
     .ek-my-cardcount { font-size: 10px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
     .ek-my-turn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ek-green); box-shadow: 0 0 8px var(--ek-green); animation: oppPulse 1s infinite; }
 
-    .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 8px; overflow-x: auto; padding: 8px 12px 6px; scrollbar-width: none; -ms-overflow-style: none; width: 100%; min-height: calc(var(--ek-card-h) + 28px); align-items: flex-end; }
-    .ek-hand-fan::-webkit-scrollbar { display: none; }
+    .ek-hand-and-actions { display: flex; flex-direction: row; align-items: flex-end; gap: 16px; width: 100%; justify-content: center; overflow-x: auto; padding: 8px 16px; scrollbar-width: none; -ms-overflow-style: none; }
+    .ek-hand-and-actions::-webkit-scrollbar { display: none; }
+    
+    .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 10px; padding: 0; flex: 1; min-height: calc(var(--ek-card-h) + 20px); align-items: flex-end; }
 
-    .ek-action-strip { display: flex; gap: 10px; width: 100%; justify-content: center; max-width: 480px; }
-    .ek-action-btn { flex: 1; max-width: 220px; padding: 13px 20px; border: none; border-radius: 12px; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: .5px; }
-    .ek-action-play { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 4px 18px rgba(255,90,31,0.4); }
-    .ek-action-play:hover { filter: brightness(1.12); transform: translateY(-1px); }
-    .ek-action-draw { background: rgba(255,255,255,0.06); color: var(--ek-text); border: 1px solid rgba(255,255,255,0.12); }
-    .ek-action-draw:hover { background: rgba(255,255,255,0.1); }
+    .ek-action-strip { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    @media (max-width: 1024px) {
+      .ek-action-strip { flex-direction: row; gap: 8px; }
+    }
+    @media (max-width: 640px) {
+      .ek-action-strip { flex-direction: column; gap: 8px; }
+    }
+    .ek-action-btn { padding: 16px 24px; border: none; border-radius: 12px; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: .6px; white-space: nowrap; }
+    @media (min-width: 1025px) {
+      .ek-action-btn { min-width: 160px; }
+    }
+    @media (max-width: 768px) {
+      .ek-action-btn { min-width: 140px; font-size: 13px; padding: 14px 20px; }
+    }
+    @media (max-width: 480px) {
+      .ek-action-btn { min-width: 100%; font-size: 12px; padding: 12px 18px; }
+    }
+    .ek-action-play { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 6px 24px rgba(255,90,31,0.5); }
+    .ek-action-play:hover { filter: brightness(1.15); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(255,90,31,0.6); }
+    .ek-action-play:active { transform: translateY(0); }
+    .ek-action-draw { background: rgba(255,255,255,0.06); color: var(--ek-text); border: 1.5px solid rgba(255,255,255,0.15); }
+    .ek-action-draw:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255,255,255,0.1); }
+    .ek-action-draw:active { transform: translateY(0); }
 
     /* ── Action FX ── */
     .ek-fx-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: flex; align-items: center; justify-content: center; }
