@@ -32,7 +32,7 @@ const PLAYER_SLOTS = ['player1', 'player2', 'player3', 'player4', 'player5', 'pl
 const ALL_ROLES = ['player1', 'player2', 'player3', 'player4', 'player5'];
 const ACTION_LABEL_MAP = {
   attack: 'Attack', skip: 'Skip', favor: 'Favor',
-  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal', 
+  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal',
   trade_cats: 'Trade 5 Cats for Defuse', draw_from_bottom: 'Draw From Bottom',
   swap_top_bottom: 'Swap Top & Bottom',
   catomic_bomb: 'Catomic Bomb',
@@ -435,7 +435,7 @@ function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
   selectedCards, setSelectedCards, tradeMode, setTradeMode, onCardClick, onPlaySelected, onDrawCard,
   onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
-  onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId,
+  onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId,
 }) {
   const gameOver = game?.winner;
   const drawPile = game?.drawPile || [];
@@ -623,26 +623,39 @@ function GameBoardScreen({
           <div className="ek-table-felt-game">
             <div className="ek-piles-row">
               <div className="ek-pile-slot">
-                <div
-                  className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''} ${drawAnim ? 'ek-pile-draw-pulse' : ''}`}
-                  onClick={myTurn && phase === 'play' ? onDrawCard : undefined}
-                >
-                  <div className="ek-card-back">
-                    <img
-                      src="/Resources/exploding kitten/backcard.webp"
-                      alt="Draw pile card back"
-                      className="ek-card-back-img"
-                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-                    />
-                    <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
-                  </div>
-                  {drawPile.length > 0 && <div className="ek-pile-count-badge">{drawPile.length}</div>}
-                </div>
-                {drawAnim !== 0 && (
-                  <div className="ek-draw-fly" key={drawAnim}>
-                    <img src="/Resources/exploding kitten/backcard.webp" alt="" className="ek-card-back-img" onError={e => { e.target.style.display = 'none'; }} />
-                  </div>
-                )}
+                {(() => {
+                  const topCard = drawPile[drawPile.length - 1];
+                  const isFaceUp = topCard?.faceUp === true;
+                  return (
+                    <div
+                      className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''} ${drawAnim ? 'ek-pile-draw-pulse' : ''} ${isFaceUp ? 'ek-pile-faceup' : ''}`}
+                      onClick={myTurn && phase === 'play' ? onDrawCard : undefined}
+                    >
+                      {isFaceUp ? (
+                        <>
+                          <img
+                            src={topCard.image || '/Resources/exploding kitten/Imploding-Kitten.webp'}
+                            alt="Imploding Kitten"
+                            className="ek-card-img"
+                            onError={e => { e.target.style.display = 'none'; }}
+                          />
+                          <div className="ek-pile-faceup-badge">👁 FACE UP</div>
+                        </>
+                      ) : (
+                        <div className="ek-card-back">
+                          <img
+                            src="/Resources/exploding kitten/backcard.webp"
+                            alt="Draw pile card back"
+                            className="ek-card-back-img"
+                            onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                          />
+                          <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
+                        </div>
+                      )}
+                      {drawPile.length > 0 && <div className="ek-pile-count-badge">{drawPile.length}</div>}
+                    </div>
+                  );
+                })()}
                 <div className="ek-pile-name">Draw</div>
               </div>
 
@@ -810,7 +823,7 @@ function GameBoardScreen({
             drawPile={drawPile}
             onPlaceBomb={onPlaceImploding}
             title="Place Imploding Kitten face-up"
-            icon="💀"
+            cardImage={pending?.bomb?.image || '/Resources/exploding kitten/Imploding-Kitten.webp'}
           />
         </div>
       )}
@@ -1047,16 +1060,22 @@ const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActi
 });
 
 /* ─── DEFUSE PANEL ───────────────────────────────────────────────────── */
-const DefusePanel = memo(function DefusePanel({ drawPile, onPlaceBomb, title, icon }) {
+const DefusePanel = memo(function DefusePanel({ drawPile, onPlaceBomb, title, icon, cardImage }) {
   const [pos, setPos] = useState(Math.floor(drawPile.length / 2));
   return (
     <div className="ek-panel-inner">
-      <div className="ek-panel-icon">{icon ?? '💣'}</div>
+      {cardImage ? (
+        <div className="ek-defuse-card-preview">
+          <img src={cardImage} alt={title || 'Card'} className="ek-defuse-card-img" onError={e => { e.target.style.display = 'none'; }} />
+        </div>
+      ) : (
+        <div className="ek-panel-icon">{icon ?? '💣'}</div>
+      )}
       <h3 className="ek-panel-title">{title ?? `Place bomb at position ${pos}`}</h3>
       <input type="range" min="0" max={drawPile.length} value={pos} onChange={e => setPos(Number(e.target.value))} className="ek-range" />
       <div className="ek-range-labels"><span>Top</span><span>Bottom</span></div>
       <button className="ek-action-btn ek-action-play" style={{ width: '100%', marginTop: 12 }} onClick={() => onPlaceBomb(pos)}>
-        Insert Bomb
+        Insert
       </button>
     </div>
   );
@@ -1338,7 +1357,17 @@ function getStyles() {
 
     .ek-center-area { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 4px 0; }
     .ek-table-felt-game { width: min(480px, 90vw); background: radial-gradient(ellipse at center, #1e4530 0%, #122a1c 60%, #0c1e12 100%); border: 2px solid var(--ek-felt-border); border-radius: 24px; padding: 20px 20px 18px; box-shadow: inset 0 2px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 14px; }
-
+    
+    .ek-defuse-card-preview {
+      display: flex; justify-content: center; margin-bottom: 16px;
+    }
+    .ek-defuse-card-img {
+      width: 110px; height: 154px; object-fit: cover;
+      border-radius: 12px;
+      border: 3px solid rgba(176, 190, 197, 0.6);
+      box-shadow: 0 0 20px rgba(176,190,197,0.4), 0 8px 24px rgba(0,0,0,0.6);
+    }
+    
     .ek-piles-row { display: flex; gap: 36px; align-items: flex-end; }
     .ek-pile-slot { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
     .ek-pile-name { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 2px; font-family: 'DM Mono', monospace; }
@@ -1661,6 +1690,24 @@ function getStyles() {
     @keyframes burstIn { from { transform: scale(0.2) rotate(-20deg); opacity: 0; } to { transform: scale(1) rotate(0deg); opacity: 1; } }
     .ek-gameover-name { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; background: linear-gradient(120deg, var(--ek-fire), var(--ek-gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .ek-gameover-sub { font-size: 13px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 28px; }
+
+    /* ── Face-up card on draw pile ── */
+    .ek-pile-faceup {
+      border-color: #b0bec5 !important;
+      box-shadow: 0 0 16px rgba(176,190,197,0.6), 0 0 0 2px #b0bec5 !important;
+      animation: implodingPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes implodingPulse {
+      0%,100% { box-shadow: 0 0 10px rgba(176,190,197,0.4), 0 0 0 2px #b0bec5; }
+      50% { box-shadow: 0 0 24px rgba(176,190,197,0.9), 0 0 0 3px #eceff1; }
+    }
+    .ek-pile-faceup-badge {
+      position: absolute; top: 5px; left: 0; right: 0;
+      text-align: center; font-size: 8px; font-weight: 800;
+      font-family: 'DM Mono', monospace; color: #b0bec5;
+      letter-spacing: 1px; text-transform: uppercase;
+      text-shadow: 0 0 8px rgba(176,190,197,0.8);
+    }
 
     /* ── Shuffle hand button ── */
     .ek-shuffle-hand-btn {
