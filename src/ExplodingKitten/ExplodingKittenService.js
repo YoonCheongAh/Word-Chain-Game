@@ -274,11 +274,20 @@ function shuffle(arr) {
 
 function getNextLivingPlayer(players, currentRole) {
   const order = Object.keys(players).sort();
-  const alive = order.filter(r => players[r] && players[r].alive !== false);
-  if (alive.length === 0) return currentRole;
-  const idx = alive.indexOf(currentRole);
-  if (idx === -1) return alive[0];
-  return alive[(idx + 1) % alive.length];
+
+  let idx = order.indexOf(currentRole);
+  if (idx === -1) return order[0];
+
+  const n = order.length;
+
+  for (let i = 1; i <= n; i++) {
+    const role = order[(idx + i) % n];
+    if (players[role] && players[role].alive !== false) {
+      return role;
+    }
+  }
+
+  return currentRole;
 }
 
 function anyPlayerHasNope(players, excludeRole = null) {
@@ -355,16 +364,7 @@ function buildResolutionUpdates(pending, game) {
       return updates;
     }
     case "draw_from_bottom":
-      return {
-        "game/phase": "play",
-        "game/pendingAction": null,
-        "game/nopeWindow": null,
-        "game/nopeChain": [],
-        "game/turn": pending.resolvedTurn,
-        "game/attackStack": pending.resolvedAttackStack,
-        [`players/${pending.by}/hand`]: pending.newHand,
-        "game/drawPile": pending.newDrawPile,
-      };
+      return { ...pending.resolutionUpdates };
     case "swap_top_bottom":
       return {
         "game/phase": "play",
@@ -852,39 +852,121 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     }
 
     case CARD_TYPES.DRAW_FROM_BOTTOM: {
-      // Consumes 1 attack turn (like Skip), draws from bottom instead
-      const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
-      const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
-
       const drawPile = [...(game.drawPile || [])];
       if (drawPile.length === 0) break;
 
       // Draw from bottom = index 0
       const drawnCard = drawPile.shift();
-      const hand = [...(players[playerRole].hand || []), drawnCard];
+      const handAfterPlay = newHand; // hand sau khi đã bỏ lá Draw From Bottom
+
+      let resolutionUpdates;
+      let logMsg;
+
+      if (drawnCard.type === CARD_TYPES.EXPLODING_KITTEN) {
+        const defuseIdx = handAfterPlay.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+        if (defuseIdx !== -1) {
+          // Có Defuse → gỡ bom, chờ đặt lại vào bộ bài
+          const handAfterDefuse = handAfterPlay.filter((_, i) => i !== defuseIdx);
+          resolutionUpdates = {
+            [`players/${playerRole}/hand`]: handAfterDefuse,
+            "game/drawPile": drawPile,
+            "game/discardPile": [...discard, handAfterPlay[defuseIdx]],
+            "game/phase": "defuse",
+            "game/nopeWindow": null,
+            "game/nopeChain": [],
+            "game/pendingAction": { type: "defuse", by: playerRole, bomb: drawnCard },
+          };
+          logMsg = logBase + " Drew the Exploding Kitten from the bottom! Used Defuse 💣";
+        } else {
+          // Không có Defuse → nổ
+          const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
+          const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
+          const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
+          resolutionUpdates = {
+            [`players/${playerRole}/hand`]: [],
+            [`players/${playerRole}/alive`]: false,
+            "game/drawPile": drawPile,
+            "game/discardPile": [...discard, drawnCard],
+            "game/turn": nextPlayer,
+            "game/attackStack": 0,
+            "game/phase": "play",
+            "game/nopeWindow": null,
+            "game/nopeChain": [],
+            "game/pendingAction": null,
+          };
+          if (aliveRoles.length <= 1) {
+            resolutionUpdates["game/winner"] = aliveRoles[0] || null;
+            resolutionUpdates["status"] = "finished";
+          }
+          logMsg = `💥 ${players[playerRole].name} drew the Exploding Kitten from the bottom and exploded!`;
+        }
+      } else if (drawnCard.type === CARD_TYPES.IMPLODING_KITTEN && drawnCard.faceUp) {
+        // Imploding Kitten đã lật mặt ở đáy → nổ ngay, không thể Defuse
+        const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
+        const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
+        const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
+        resolutionUpdates = {
+          [`players/${playerRole}/hand`]: [],
+          [`players/${playerRole}/alive`]: false,
+          "game/drawPile": drawPile,
+          "game/discardPile": [...discard, drawnCard],
+          "game/turn": nextPlayer,
+          "game/attackStack": 0,
+          "game/phase": "play",
+          "game/nopeWindow": null,
+          "game/nopeChain": [],
+          "game/pendingAction": null,
+        };
+        if (aliveRoles.length <= 1) {
+          resolutionUpdates["game/winner"] = aliveRoles[0] || null;
+          resolutionUpdates["status"] = "finished";
+        }
+        logMsg = `💀 ${players[playerRole].name} drew the face-up Imploding Kitten from the bottom and imploded!`;
+      } else if (drawnCard.type === CARD_TYPES.IMPLODING_KITTEN) {
+        // Imploding Kitten còn úp mặt → phải đặt lại lên bộ bài, mặt up
+        resolutionUpdates = {
+          [`players/${playerRole}/hand`]: handAfterPlay,
+          "game/drawPile": drawPile,
+          "game/discardPile": discard,
+          "game/phase": "place_imploding",
+          "game/nopeWindow": null,
+          "game/nopeChain": [],
+          "game/pendingAction": { type: "place_imploding", by: playerRole, bomb: { ...drawnCard, faceUp: true } },
+        };
+        logMsg = logBase + " Drew the Imploding Kitten from the bottom. Place it back face-up!";
+      } else {
+        // Bài thường
+        const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
+        const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+        resolutionUpdates = {
+          [`players/${playerRole}/hand`]: [...handAfterPlay, drawnCard],
+          "game/drawPile": drawPile,
+          "game/discardPile": discard,
+          "game/turn": nextPlayer,
+          "game/attackStack": turnsOwed,
+          "game/phase": "play",
+          "game/nopeWindow": null,
+          "game/nopeChain": [],
+          "game/pendingAction": null,
+        };
+        logMsg = logBase + " Drew from the bottom!";
+      }
 
       const pendingObj = {
         type: "draw_from_bottom",
         by: playerRole,
-        resolvedTurn: nextPlayer,
-        resolvedAttackStack: turnsOwed,
         savedAttackStack: game.attackStack || 0,
         savedTurn: game.turn,
         nopeWindowPhase: "play",
-        drawnCard,
-        newHand: hand,
-        newDrawPile: drawPile,
+        resolutionUpdates,
       };
 
-      // Handle if drawn card is Exploding Kitten or Imploding Kitten
-      // (resolve after nope window — see resolveNopeWindow / buildResolutionUpdates)
-      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: handAfterPlay } };
       const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
-      const logMsg = logBase + " Drew from the bottom!";
 
       if (canNope) {
         await update(ref(db, `rooms/${roomId}`), {
-          [`players/${playerRole}/hand`]: newHand,
+          [`players/${playerRole}/hand`]: handAfterPlay,
           "game/discardPile": discard,
           "game/phase": "nope_window",
           "game/nopeChain": [],
@@ -894,13 +976,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
         });
       } else {
         await update(ref(db, `rooms/${roomId}`), {
-          [`players/${playerRole}/hand`]: hand,
-          "game/drawPile": drawPile,
-          "game/discardPile": discard,
-          "game/turn": nextPlayer,
-          "game/attackStack": turnsOwed,
-          "game/phase": "play",
-          "game/nopeWindow": null,
+          ...resolutionUpdates,
           "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
         });
       }

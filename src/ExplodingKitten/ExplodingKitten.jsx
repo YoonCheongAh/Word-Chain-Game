@@ -512,6 +512,8 @@ function GameBoardScreen({
   const discardPile = game?.discardPile || [];
   const topDiscard = discardPile[discardPile.length - 1];
   const log = game?.log || [];
+  const aliveCount = Object.values(players).filter(p => p?.alive !== false).length;
+  const isSpectating = players[myRole]?.alive === false && !gameOver;
 
   const [newCardIds, setNewCardIds] = useState(new Set());
   const prevHandIdsRef = useRef(new Set());
@@ -527,12 +529,12 @@ function GameBoardScreen({
 
   // Effect 1: khi phase → defuse, đánh dấu defuse đang chờ
   useEffect(() => {
-    if (phase === 'defuse' && pending?.by === myRole) {
+    if (phase === 'defuse') {
       setDefusePending(true);
     } else {
       setDefusePending(false);
     }
-  }, [phase, pending?.by, myRole]);
+  }, [phase]);
 
   // Effect 2: bomb FX xong + defuse đang chờ → trigger defuse FX
   useEffect(() => {
@@ -765,31 +767,14 @@ function GameBoardScreen({
       </div>
     );
   }
-  if (players[myRole]?.alive === false && !gameOver && bombDone) {
-    return (
-      <div className="ek-root ek-gameover-root">
-        <div className="ek-gameover-card">
-          <div className="ek-gameover-burst">💀</div>
-          <h2 className="ek-gameover-name" style={{ fontSize: '36px' }}>You Exploded!</h2>
-          <p className="ek-gameover-sub">Waiting for the game to end…</p>
-          <div style={{
-            marginTop: '16px',
-            padding: '12px 20px',
-            background: 'rgba(255,255,255,0.05)',
-            borderRadius: '12px',
-            fontSize: '13px',
-            color: 'var(--ek-text-muted)',
-            fontFamily: "'DM Mono', monospace",
-          }}>
-            {Object.values(players).filter(p => p?.alive !== false).length} players remaining
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="ek-root ek-game-root">
+      {isSpectating && (
+        <div className="ek-spectate-banner">
+          💀 You exploded — Spectating the match · {aliveCount} players remaining
+        </div>
+      )}
       <div className="ek-game-layout">
 
         {/* ── Opponent ring ── */}
@@ -2096,6 +2081,16 @@ function getStyles() {
     }
 
     .ek-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: linear-gradient(120deg, #c02800, var(--ek-fire)); color: #fff; padding: 11px 22px; border-radius: 24px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 20px rgba(255,90,31,0.4); z-index: 999; animation: toastIn .25s ease; pointer-events: none; }
+    .ek-spectate-banner {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.15);
+      color: var(--ek-text); padding: 9px 20px; border-radius: 22px;
+      font-size: 12px; font-weight: 700; font-family: 'DM Mono', monospace;
+      letter-spacing: .5px; z-index: 50; backdrop-filter: blur(6px);
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      animation: toastIn .25s ease;
+    }
     @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
     .ek-gameover-root { display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse 100% 80% at 50% 50%, #1a1400, #0D0D0D 70%); }
