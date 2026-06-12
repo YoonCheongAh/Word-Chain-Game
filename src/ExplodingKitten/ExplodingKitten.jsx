@@ -9,7 +9,7 @@ import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
   resolveNopeWindow, reorderAlterTheFuture,
-  CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable,
+  CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse
 } from './ExplodingKittenService';
 
 // ── Inject styles ONCE at module level, not in useEffect ──
@@ -32,7 +32,7 @@ const PLAYER_SLOTS = ['player1', 'player2', 'player3', 'player4', 'player5', 'pl
 const ALL_ROLES = ['player1', 'player2', 'player3', 'player4', 'player5'];
 const ACTION_LABEL_MAP = {
   attack: 'Attack', skip: 'Skip', favor: 'Favor',
-  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal',
+  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal', trade_cats: 'Trade 5 Cats for Defuse'
 };
 
 export default function ExplodingKitten() {
@@ -46,6 +46,7 @@ export default function ExplodingKitten() {
   const [toast, setToast] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
   const nopeTimerRef = useRef(null);
+  const [tradeMode, setTradeMode] = useState(false);
 
   const game = roomData?.game;
   const players = roomData?.players || {};
@@ -144,6 +145,15 @@ export default function ExplodingKitten() {
     if (!myTurn) { showToast('Not your turn!'); return; }
     if (phase !== 'play') { showToast('Finish the current action first!'); return; }
 
+    if (tradeMode && CAT_CARD_TYPES.has(card.type)) {
+      setSelectedCards(prev => {
+        if (prev.some(c => c.id === card.id)) return prev.filter(c => c.id !== card.id);
+        if (prev.length >= 5) return prev;
+        return [...prev, card];
+      });
+      return;
+    }
+
     if (CAT_CARD_TYPES.has(card.type)) {
       setSelectedCards(prev => {
         const alreadySelected = prev[0];
@@ -159,7 +169,7 @@ export default function ExplodingKitten() {
     }
 
     setSelectedCards(prev => prev[0]?.id === card.id ? [] : [card]);
-  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast]);
+  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast, tradeMode]);
 
   const handlePlaySelected = useCallback(() => {
     const card = selectedCards[0];
@@ -193,6 +203,7 @@ export default function ExplodingKitten() {
   const handleCloseFuture = useCallback(() => closeSeeTheFuture(roomId), [roomId]);
   const handleReorderAlterFuture = useCallback((reorderedCards) => reorderAlterTheFuture(roomId, myRole, reorderedCards), [roomId, myRole]);
   const handleRematch = useCallback(() => requestRematch(roomId, myRole), [roomId, myRole]);
+  const handleTradeCatsForDefuse = useCallback((cardIds) => tradeFiveCatsForDefuse(roomId, myRole, cardIds), [roomId, myRole]);
 
   if (screen === 'lobby') {
     return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} name={name} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} />;
@@ -218,9 +229,13 @@ export default function ExplodingKitten() {
         onPlaceBomb={handlePlaceBomb}
         onGiveCard={handleGiveCard}
         onStealCard={handleStealCard}
+        tradeMode={tradeMode}
+        setTradeMode={setTradeMode}
         onChooseFavorTarget={handleChooseFavorTarget}
         onSelectFavorTarget={handleSelectFavorTarget}
         onCloseFuture={handleCloseFuture}
+        setSelectedCards={setSelectedCards}
+        onTradeCatsForDefuse={handleTradeCatsForDefuse}
         onReorderAlterFuture={handleReorderAlterFuture}
         onRematch={handleRematch}
         toast={toast}
@@ -413,9 +428,9 @@ const BombExplosionEffect = memo(function BombExplosionEffect({ onDone }) {
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
-  selectedCards, onCardClick, onPlaySelected, onDrawCard,
+  selectedCards, setSelectedCards, tradeMode, setTradeMode, onCardClick, onPlaySelected, onDrawCard,
   onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
-  onCloseFuture, onReorderAlterFuture, onRematch, toast, showToast, roomId,
+  onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId,
 }) {
   const gameOver = game?.winner;
   const drawPile = game?.drawPile || [];
@@ -717,13 +732,35 @@ function GameBoardScreen({
 
             {myTurn && phase === 'play' && (
               <div className="ek-action-strip">
-                {selectedCards.length > 0 && (
+                {selectedCards.length > 0 && !tradeMode && ( 
                   <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
                     ▶ Play{selectedCards.length > 0 ? ` ${CARD_META[selectedCards[0]?.type]?.label || 'Card'}` : ''}
                     {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
                   </button>
                 )}
                 <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
+                <button
+                  className="ek-action-btn ek-action-draw"
+                  onClick={() => {
+                    setTradeMode(t => !t);
+                    setSelectedCards([]);
+                  }}
+                >
+                  {tradeMode ? `Cancel (${selectedCards.length}/5)` : 'Trade defuse'}
+                </button>
+
+                {tradeMode && selectedCards.length === 5 && (
+                  <button
+                    className="ek-action-btn ek-action-play"
+                    onClick={() => {
+                      onTradeCatsForDefuse(selectedCards.map(c => c.id));
+                      setSelectedCards([]);
+                      setTradeMode(false);
+                    }}
+                  >
+                    Confirm
+                  </button>
+                )}
               </div>
             )}
           </div>

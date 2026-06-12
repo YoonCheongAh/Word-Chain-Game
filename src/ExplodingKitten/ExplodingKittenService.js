@@ -299,6 +299,24 @@ function buildResolutionUpdates(pending, game) {
         "game/nopeWindow": null,
         "game/nopeChain": [],
       };
+    case "trade_cats": {
+      const updates = {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
+
+      if (pending.defuseCard) {
+        updates[`players/${pending.by}/hand`] = [
+          ...pending.handAfterDiscard,
+          pending.defuseCard,
+        ];
+        updates["game/drawPile"] = pending.drawPileAfterRemoval;
+        return updates;
+      }
+      return updates;
+    }
     default:
       return {
         "game/phase": "play",
@@ -332,13 +350,13 @@ export async function startGame(roomId) {
   let deck = shuffle(buildBaseDeck(playerCount));
 
   // Total defuses = playerCount + 2; each player gets 1, rest go into the draw pile
-  const totalDefuses = playerCount + 2;
+  const totalDefuses = playerCount + 3;
   const extraDefuses = totalDefuses - playerCount; // always 2
 
   const hands = {};
   for (const role of roles) {
     hands[role] = [];
-    for (let i = 0; i < 5; i++) {       // 5 random cards (not 7)
+    for (let i = 0; i < 6; i++) {
       hands[role].push(deck.shift());
     }
     hands[role].push({
@@ -348,7 +366,7 @@ export async function startGame(roomId) {
   }
 
   const bombs = [];
-  for (let i = 0; i < playerCount - 1; i++) {   // Exploding Kittens = players - 1
+  for (let i = 0; i < playerCount - 1; i++) {
     bombs.push({
       ...createCard(CARD_TYPES.EXPLODING_KITTEN),
       id: `bomb_${i}`
@@ -945,6 +963,77 @@ export async function giveFavorCard(roomId, giverRole, cardId) {
   });
 }
 
+export async function tradeFiveCatsForDefuse(roomId, playerRole, cardIds) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  if (!game || game.turn !== playerRole || game.phase !== "play") return;
+
+  const hand = [...(players[playerRole].hand || [])];
+  if (cardIds.length !== 5) return;
+
+  const cardsToDiscard = [];
+  for (const id of cardIds) {
+    const c = hand.find(h => h.id === id);
+    if (!c || !CAT_CARD_TYPES.has(c.type)) return;
+    cardsToDiscard.push(c);
+  }
+
+  const newHand = hand.filter(c => !cardIds.includes(c.id));
+  const discard = [...(game.discardPile || []), ...cardsToDiscard];
+  const drawPile = [...(game.drawPile || [])];
+  const defuseIdx = drawPile.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+
+  let defuseCard = null;
+  let drawPileAfterRemoval = drawPile;
+  let logMsg;
+  if (defuseIdx !== -1) {
+    drawPileAfterRemoval = [...drawPile];
+    [defuseCard] = drawPileAfterRemoval.splice(defuseIdx, 1);
+    logMsg = `${players[playerRole].name} Trade 5 cats different for defuse`;
+  } else {
+    logMsg = `${players[playerRole].name} No defuse in the deck`;
+  }
+
+  const pendingObj = {
+    type: "trade_cats",
+    by: playerRole,
+    handAfterDiscard: newHand,
+    defuseCard,
+    drawPileAfterRemoval,
+    savedAttackStack: game.attackStack || 0,
+    savedTurn: game.turn,
+    nopeWindowPhase: "play",
+  };
+
+  const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+  const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+  if (canNope) {
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${playerRole}/hand`]: newHand,
+      "game/discardPile": discard,
+      "game/phase": "nope_window",
+      "game/nopeChain": [],
+      "game/nopeWindow": {
+        open: true,
+        expiresAt: Date.now() + 5000,
+        pendingType: "trade_cats",
+        isCurrentlyNoped: false,
+      },
+      "game/pendingAction": pendingObj,
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+  } else {
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${playerRole}/hand`]: newHand,
+      "game/discardPile": discard,
+      ...buildResolutionUpdates(pendingObj, game),
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+  }
+}
+
 // Pair steal: thief chose a target AND a specific (face-down) card position to steal.
 // cardIndex is the position the thief picked while the card was still face-down.
 // Falls back to random only if no valid index is provided (backwards compatible).
@@ -999,7 +1088,7 @@ export async function reorderAlterTheFuture(roomId, playerRole, reorderedCards) 
   // The reorderedCards come from the UI in display order (top to bottom)
   // We need to put them back on the draw pile in reverse order so they draw in the correct sequence
   const drawPile = [...(game.drawPile || [])];
-  
+
   // Remove the top 3 cards that were revealed
   drawPile.pop();
   drawPile.pop();
