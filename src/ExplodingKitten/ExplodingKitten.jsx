@@ -37,6 +37,17 @@ const ACTION_LABEL_MAP = {
   swap_top_bottom: 'Swap Top & Bottom',
   catomic_bomb: 'Catomic Bomb',
 };
+const FX_ICON_MAP = {
+  [CARD_TYPES.ATTACK]: '⚔️',
+  [CARD_TYPES.SKIP]: '⏭️',
+  [CARD_TYPES.FAVOR]: '🤲',
+  [CARD_TYPES.SHUFFLE]: '🔀',
+  [CARD_TYPES.SEE_THE_FUTURE]: '🔮',
+  [CARD_TYPES.ALTER_THE_FUTURE]: '✨',
+  [CARD_TYPES.DRAW_FROM_BOTTOM]: '⬇️',
+  [CARD_TYPES.SWAP_TOP_BOTTOM]: '🔁',
+  [CARD_TYPES.DEFUSE]: '🛡️',
+};
 
 export default function ExplodingKitten() {
   const [screen, setScreen] = useState('lobby');
@@ -430,6 +441,65 @@ const BombExplosionEffect = memo(function BombExplosionEffect({ onDone }) {
   );
 });
 
+const DefuseFx = memo(function DefuseFx({ onDone }) {
+
+  useEffect(() => {
+    const t = setTimeout(onDone, 1200);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <CardPlayEffect type={CARD_TYPES.DEFUSE} />
+  );
+});
+
+const IMPLODE_PARTICLES = [...Array(20)];
+const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, cardImage }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2600);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="ek-implode-overlay" aria-hidden="true">
+      <div className="ek-implode-void" />
+      <div className="ek-implode-ring ek-implode-ring-1" />
+      <div className="ek-implode-ring ek-implode-ring-2" />
+      <div className="ek-implode-ring ek-implode-ring-3" />
+      {IMPLODE_PARTICLES.map((_, i) => {
+        const angle = (i / IMPLODE_PARTICLES.length) * 360;
+        const dist = 140 + (i % 5) * 50;
+        const size = 5 + (i % 4) * 5;
+        return (
+          <div
+            key={i}
+            className="ek-implode-particle"
+            style={{
+              '--angle': `${angle}deg`,
+              '--dist': `${dist}px`,
+              '--size': `${size}px`,
+              '--delay': `${0.1 + (i % 6) * 0.05}s`,
+            }}
+          />
+        );
+      })}
+      <div className="ek-implode-card-pull">
+        <div className="ek-implode-card-inner">
+          <img
+            src={cardImage || '/Resources/exploding kitten/Imploding-Kitten.webp'}
+            alt="Imploding Kitten"
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+        </div>
+      </div>
+      <div className="ek-implode-text">
+        <span className="ek-implode-text-main">IMPLODING…</span>
+        <span className="ek-implode-text-sub">KITTEN REVEALED — FACE UP ON THE DECK</span>
+      </div>
+    </div>
+  );
+});
+
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
@@ -448,11 +518,52 @@ function GameBoardScreen({
   const flipTimersRef = useRef({});
   const prevGameIdRef = useRef(game?.startedAt);
   const [bombDone, setBombDone] = useState(true);
+  const [showBombFx, setShowBombFx] = useState(false);
+  const [defusePending, setDefusePending] = useState(false);
+  const [bombFxFinished, setBombFxFinished] = useState(true);
+  const [showDefuseFx, setShowDefuseFx] = useState(false);
+  const [showSeeFutureFx, setShowSeeFutureFx] = useState(false);
+  const prevPhaseSeeRef = useRef(phase);
+
+  // Effect 1: khi phase → defuse, đánh dấu defuse đang chờ
+  useEffect(() => {
+    if (phase === 'defuse' && pending?.by === myRole) {
+      setDefusePending(true);
+    } else {
+      setDefusePending(false);
+    }
+  }, [phase, pending?.by, myRole]);
+
+  // Effect 2: bomb FX xong + defuse đang chờ → trigger defuse FX
+  useEffect(() => {
+    if (bombFxFinished && defusePending) {
+      setShowDefuseFx(true);
+      setDefusePending(false); // reset để không trigger lại
+    }
+  }, [bombFxFinished, defusePending]);
+
+  useEffect(() => {
+    if (prevPhaseSeeRef.current !== 'see_future' && phase === 'see_future') {
+      setShowSeeFutureFx(true);
+    }
+    prevPhaseSeeRef.current = phase;
+  }, [phase]);
+
+  const [showAlterFutureFx, setShowAlterFutureFx] = useState(false);
+  const prevPhaseAlterRef = useRef(phase);
+  useEffect(() => {
+    if (prevPhaseAlterRef.current !== 'alter_future' && phase === 'alter_future') {
+      setShowAlterFutureFx(true);
+    }
+    prevPhaseAlterRef.current = phase;
+  }, [phase]);
 
   useEffect(() => {
     if (game?.startedAt && game.startedAt !== prevGameIdRef.current) {
       setShowBombFx(false);
       setBombDone(true);
+      setBombFxFinished(true);
+
       prevGameIdRef.current = game.startedAt;
     }
   }, [game?.startedAt]);
@@ -484,32 +595,65 @@ function GameBoardScreen({
     return () => { Object.values(flipTimersRef.current).forEach(clearTimeout); };
   }, []);
 
-  const [showBombFx, setShowBombFx] = useState(false);
   const prevPhaseRef = useRef(phase);
-  const prevAliveRef = useRef(true);
+  const prevAlivesRef = useRef(
+    Object.fromEntries(Object.entries(players).map(([r, p]) => [r, p?.alive]))
+  );
+
+  const [showImplodeFx, setShowImplodeFx] = useState(false);
+  const prevPhaseImplodeRef = useRef(phase);
 
   useEffect(() => {
-    const wasAlive = prevAliveRef.current;
-    const isAlive = players[myRole]?.alive !== false;
+    if (prevPhaseImplodeRef.current !== 'place_imploding' && phase === 'place_imploding') {
+      setShowImplodeFx(true);
+      setBombDone(false);
+    }
+    prevPhaseImplodeRef.current = phase;
+  }, [phase]);
+
+  const handleImplodeDone = useCallback(() => {
+    setShowImplodeFx(false);
+    setBombDone(true);
+  }, []);
+
+  useEffect(() => {
     const phaseChangedToDefuse = prevPhaseRef.current !== 'defuse' && phase === 'defuse';
-    if (phaseChangedToDefuse || (wasAlive && !isAlive)) {
+    // Bất kỳ player nào chuyển sang dead mà trước đó còn sống
+    const anyJustDied = Object.entries(players).some(([role, p]) => {
+      const wasAlive = prevAlivesRef.current[role] !== false;
+      return wasAlive && p?.alive === false;
+    });
+    if (phaseChangedToDefuse || anyJustDied) {
+      setBombFxFinished(false);
       setShowBombFx(true);
       setBombDone(false);
     }
     prevPhaseRef.current = phase;
-    prevAliveRef.current = isAlive;
-  }, [phase, players, myRole]);
+    // Cập nhật snapshot alive của tất cả players
+    prevAlivesRef.current = Object.fromEntries(
+      Object.entries(players).map(([r, p]) => [r, p?.alive])
+    );
+  }, [phase, players]);
 
   useEffect(() => {
-    if (gameOver) {
-      SoundManager.play(gameOver === myRole ? 'win' : 'lose');
-      if (bombDone) { setShowBombFx(true); setBombDone(false); }
-    }
-  }, [gameOver]);
+    if (!gameOver) return;
+    SoundManager.play(gameOver === myRole ? 'win' : 'lose');
+    // KHÔNG setShowBombFx(false) ở đây — để explosion animation chạy hết
+    // handleBombDone sẽ set bombDone=true sau 2800ms → game-over screen tự hiện
+    // Chỉ tắt implode fx (nó không liên quan đến game-over gate)
+    setShowImplodeFx(false);
+  }, [gameOver, myRole]);
 
   const [cardFx, setCardFx] = useState(null);
   const lastFxIdRef = useRef(null);
   const fxTimerRef = useRef(null);
+  const [showNopedFx, setShowNopedFx] = useState(false);
+  const prevNopedRef = useRef(false);
+  useEffect(() => {
+    const isNoped = nopeWindow?.isCurrentlyNoped === true;
+    if (isNoped && !prevNopedRef.current) setShowNopedFx(true);
+    prevNopedRef.current = isNoped;
+  }, [nopeWindow?.isCurrentlyNoped]);
 
   const [drawAnim, setDrawAnim] = useState(0);
   const [handKey, setHandKey] = useState(0);
@@ -548,12 +692,29 @@ function GameBoardScreen({
     setHandOrder(null);
   }, [myHand.length]);
 
+  const [catomicFx, setCatomicFx] = useState(null);
+
+  const fxBusy =
+    !bombFxFinished ||
+    showImplodeFx ||
+    !!catomicFx ||
+    showSeeFutureFx ||
+    showAlterFutureFx;
+
   useEffect(() => {
     if (!topDiscard) return;
     if (lastFxIdRef.current === topDiscard.id) return;
     lastFxIdRef.current = topDiscard.id;
+
+    // Catomic Bomb gets its own dramatic full-screen effect instead of
+    // the regular small card-play effect.
+    if (topDiscard.type === CARD_TYPES.CATOMIC_BOMB) {
+      setCatomicFx({ key: topDiscard.id });
+      return;
+    }
+
     const isCat = CAT_CARD_TYPES.has(topDiscard.type);
-    const isActionCard = !isCat && topDiscard.type !== CARD_TYPES.DEFUSE && topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN;
+    const isActionCard = !isCat && topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN && topDiscard.type !== CARD_TYPES.IMPLODING_KITTEN;
     if (!isActionCard) return;
     setCardFx({ key: topDiscard.id, type: topDiscard.type });
     if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
@@ -578,7 +739,16 @@ function GameBoardScreen({
 
   const handleBombDone = useCallback(() => {
     setShowBombFx(false);
-    setBombDone(true);
+    setBombFxFinished(true);
+    // Chỉ giữ bombDone=false nếu đang chờ defuse
+    // Nếu không có defuse pending (player đã chết), set bombDone=true luôn
+    setDefusePending(prev => {
+      if (!prev) {
+        // Không có defuse pending → player chết → unblock game-over screen
+        setBombDone(true);
+      }
+      return prev;
+    });
   }, []);
 
   if (gameOver && bombDone) {
@@ -591,6 +761,28 @@ function GameBoardScreen({
           <h2 className="ek-gameover-name">{winnerPlayer?.name} Wins!</h2>
           <p className="ek-gameover-sub">{isMe ? 'You survived the kittens!' : 'Better luck next time.'}</p>
           <button className="ek-start-btn ek-start-ready" onClick={onRematch}>Play Again</button>
+        </div>
+      </div>
+    );
+  }
+  if (players[myRole]?.alive === false && !gameOver && bombDone) {
+    return (
+      <div className="ek-root ek-gameover-root">
+        <div className="ek-gameover-card">
+          <div className="ek-gameover-burst">💀</div>
+          <h2 className="ek-gameover-name" style={{ fontSize: '36px' }}>You Exploded!</h2>
+          <p className="ek-gameover-sub">Waiting for the game to end…</p>
+          <div style={{
+            marginTop: '16px',
+            padding: '12px 20px',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '12px',
+            fontSize: '13px',
+            color: 'var(--ek-text-muted)',
+            fontFamily: "'DM Mono', monospace",
+          }}>
+            {Object.values(players).filter(p => p?.alive !== false).length} players remaining
+          </div>
         </div>
       </div>
     );
@@ -730,12 +922,16 @@ function GameBoardScreen({
                 const meta = CARD_META[card.type];
                 const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
                 const isNew = newCardIds.has(card.id);
+                // Only show "needs a pair" styling outside trade mode —
+                // in trade mode, selecting multiple cat cards is intentional.
+                const isAwaitingPair = isSelected && !tradeMode && CAT_CARD_TYPES.has(card.type);
                 return (
                   <HandCard
                     key={card.id}
                     card={card}
                     meta={meta}
                     isSelected={isSelected}
+                    isAwaitingPair={isAwaitingPair}
                     isNopeable={isNopeable}
                     isNew={isNew}
                     isDisabled={!myTurn && !isNopeable}
@@ -750,10 +946,9 @@ function GameBoardScreen({
 
             {myTurn && phase === 'play' && (
               <div className="ek-action-strip">
-                {selectedCards.length > 0 && !tradeMode && (
+                {selectedCards.length > 0 && !tradeMode && !CAT_CARD_TYPES.has(selectedCards[0]?.type) && (
                   <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
-                    ▶ Play{selectedCards.length > 0 ? ` ${CARD_META[selectedCards[0]?.type]?.label || 'Card'}` : ''}
-                    {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
+                    ▶ Play {CARD_META[selectedCards[0]?.type]?.label || 'Card'}
                   </button>
                 )}
                 <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
@@ -786,38 +981,38 @@ function GameBoardScreen({
       </div>
 
       {/* ── Phase Overlays ── */}
-      {phase === 'defuse' && pending?.by === myRole && bombDone && (
+      {phase === 'defuse' && pending?.by === myRole && bombDone && !showDefuseFx && (
         <div className="ek-overlay-panel">
           <DefusePanel drawPile={drawPile} onPlaceBomb={onPlaceBomb} />
         </div>
       )}
-      {phase === 'see_future' && game?.seeTheFuture?.forPlayer === myRole && (
+      {phase === 'see_future' && game?.seeTheFuture?.forPlayer === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <SeeFuturePanel cards={game?.seeTheFuture?.cards || []} onClose={onCloseFuture} />
         </div>
       )}
-      {phase === 'alter_future' && game?.alterTheFuture?.forPlayer === myRole && (
+      {phase === 'alter_future' && game?.alterTheFuture?.forPlayer === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <AlterFuturePanel cards={game?.alterTheFuture?.cards || []} onReorder={onReorderAlterFuture} />
         </div>
       )}
-      {phase === 'favor_choose_target' && pending?.by === myRole && (
+      {phase === 'favor_choose_target' && pending?.by === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <FavorChooseTargetPanel players={players} myRole={myRole} onSelect={onSelectFavorTarget} />
         </div>
       )}
-      {phase === 'favor_give' && pending?.target === myRole && (
+      {phase === 'favor_give' && pending?.target === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <FavorGivePanel myHand={myHand} requesterName={players[pending?.by]?.name || '?'} onGive={onGiveCard} />
         </div>
       )}
-      {phase === 'pair_target' && pending?.by === myRole && (
+      {phase === 'pair_target' && pending?.by === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <PairTargetPanel players={players} myRole={myRole} onSteal={onStealCard} />
         </div>
       )}
 
-      {phase === 'place_imploding' && pending?.by === myRole && bombDone && (
+      {phase === 'place_imploding' && pending?.by === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <DefusePanel
             drawPile={drawPile}
@@ -830,17 +1025,33 @@ function GameBoardScreen({
 
       {toast && <div className="ek-toast">{toast}</div>}
       {cardFx && <CardPlayEffect key={cardFx.key} type={cardFx.type} />}
+      {showDefuseFx && (
+        <DefuseFx onDone={() => {
+          setShowDefuseFx(false);
+          setBombDone(true); // ← panel chỉ hiện SAU KHI defuse FX xong
+        }} />
+      )}
+      {catomicFx && <CatomicBombEffect key={catomicFx.key} onDone={() => setCatomicFx(null)} />}
+      {showNopedFx && <NopedFlashEffect onDone={() => setShowNopedFx(false)} />}
+      {showSeeFutureFx && <SeeFutureFx onDone={() => setShowSeeFutureFx(false)} />}
+      {showAlterFutureFx && <AlterFutureFx onDone={() => setShowAlterFutureFx(false)} />}
+      {showImplodeFx && (
+        <ImplodingKittenEffect
+          onDone={handleImplodeDone}
+          cardImage={pending?.bomb?.image || '/Resources/exploding kitten/Imploding-Kitten.webp'}
+        />
+      )}
       {showBombFx && <BombExplosionEffect onDone={handleBombDone} />}
     </div>
   );
 }
 
 /* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
-const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick }) {
+const HandCard = memo(function HandCard({ card, meta, isSelected, isAwaitingPair, isNopeable, isNew, isDisabled, zIndex, onClick }) {
   const handleClick = useCallback(() => onClick(card), [onClick, card]);
   return (
     <div
-      className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}`}
+      className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isAwaitingPair ? ' ek-hand-card-pairing' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}`}
       style={{ '--card-color': meta?.color || '#888', zIndex }}
       onClick={handleClick}
     >
@@ -851,7 +1062,10 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
         <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
         <div className="ek-card-label-bar">{meta?.label || card.type}</div>
       </div>
-      {isSelected && <div className="ek-card-selected-glow" />}
+      {isSelected && (
+        <div className="ek-card-selected-badge">{isAwaitingPair ? '🔗' : '✓'}</div>
+      )}
+      {isAwaitingPair && <div className="ek-card-pair-hint">Chọn lá giống để ghép cặp</div>}
       {isNopeable && <div className="ek-nope-glow" />}
     </div>
   );
@@ -876,8 +1090,134 @@ const CardPlayEffect = memo(function CardPlayEffect({ type }) {
       })}
       <div className="ek-fx-card">
         {img && <img src={img} alt={meta?.label || type} onError={e => { e.target.style.display = 'none'; }} />}
+        <div className="ek-fx-card-icon">{FX_ICON_MAP[type] || ''}</div>
       </div>
       <div className="ek-fx-label">{meta?.label || type}</div>
+    </div>
+  );
+});
+
+/* ─── NOPE PLAY EFFECT ────────────────��──────────────────────────────── */
+const NopedFlashEffect = memo(function NopedFlashEffect({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 700);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div className="ek-noped-flash" aria-hidden="true">
+      <span className="ek-noped-flash-text">🚫 NOPED!</span>
+    </div>
+  );
+});
+
+/* ─── CATOMIC BOMB RADIATION BURST EFFECT ────────────────────────────── */
+const CATOMIC_PARTICLES = [...Array(18)];
+
+const CatomicBombEffect = memo(function CatomicBombEffect({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2400);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="ek-catomic-overlay" aria-hidden="true">
+      <div className="ek-catomic-flash" />
+      <div className="ek-catomic-ring ek-catomic-ring-1" />
+      <div className="ek-catomic-ring ek-catomic-ring-2" />
+      <div className="ek-catomic-ring ek-catomic-ring-3" />
+      <div className="ek-catomic-symbol">☢</div>
+      {CATOMIC_PARTICLES.map((_, i) => {
+        const angle = (i / CATOMIC_PARTICLES.length) * 360;
+        const dist = 120 + (i % 4) * 60;
+        return (
+          <div
+            key={i}
+            className="ek-catomic-particle"
+            style={{
+              '--angle': `${angle}deg`,
+              '--dist': `${dist}px`,
+              '--delay': `${0.1 + (i % 5) * 0.05}s`,
+            }}
+          />
+        );
+      })}
+      <div className="ek-catomic-text">
+        <span className="ek-catomic-text-main">CATOMIC BOMB!</span>
+        <span className="ek-catomic-text-sub">EVERYTHING CHANGES…</span>
+      </div>
+    </div>
+  );
+});
+
+/* ─── SEE THE FUTURE — TIME RIFT EFFECT ────────────────────────────── */
+const SEEFUTURE_PARTICLES = [...Array(16)];
+const SeeFutureFx = memo(function SeeFutureFx({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 1900);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="ek-seefuture-overlay" aria-hidden="true">
+      <div className="ek-seefuture-flash" />
+      <div className="ek-seefuture-eye">
+        <div className="ek-seefuture-iris" />
+        <div className="ek-seefuture-pupil" />
+      </div>
+      <div className="ek-seefuture-ring ek-seefuture-ring-1" />
+      <div className="ek-seefuture-ring ek-seefuture-ring-2" />
+      {SEEFUTURE_PARTICLES.map((_, i) => {
+        const angle = (i / SEEFUTURE_PARTICLES.length) * 360;
+        const dist = 90 + (i % 4) * 50;
+        return (
+          <div
+            key={i}
+            className="ek-seefuture-shard"
+            style={{ '--angle': `${angle}deg`, '--dist': `${dist}px`, '--delay': `${0.05 + (i % 5) * 0.04}s` }}
+          />
+        );
+      })}
+      <div className="ek-seefuture-text">
+        <span className="ek-seefuture-text-main">PEERING AHEAD…</span>
+        <span className="ek-seefuture-text-sub">SEE THE FUTURE</span>
+      </div>
+    </div>
+  );
+});
+
+/* ─── ALTER THE FUTURE — TEMPORAL VORTEX EFFECT ────────────────────── */
+const ALTERFUTURE_FRAGMENTS = [...Array(14)];
+const AlterFutureFx = memo(function AlterFutureFx({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="ek-alterfuture-overlay" aria-hidden="true">
+      <div className="ek-alterfuture-flash" />
+      <div className="ek-alterfuture-vortex">
+        <div className="ek-alterfuture-spiral ek-alterfuture-spiral-1" />
+        <div className="ek-alterfuture-spiral ek-alterfuture-spiral-2" />
+        <div className="ek-alterfuture-spiral ek-alterfuture-spiral-3" />
+      </div>
+      {ALTERFUTURE_FRAGMENTS.map((_, i) => {
+        const angle = (i / ALTERFUTURE_FRAGMENTS.length) * 360;
+        const dist = 100 + (i % 4) * 55;
+        return (
+          <div
+            key={i}
+            className="ek-alterfuture-fragment"
+            style={{ '--angle': `${angle}deg`, '--dist': `${dist}px`, '--delay': `${0.08 + (i % 5) * 0.05}s` }}
+          >
+            🃏
+          </div>
+        );
+      })}
+      <div className="ek-alterfuture-text">
+        <span className="ek-alterfuture-text-main">REWRITING FATE…</span>
+        <span className="ek-alterfuture-text-sub">ALTER THE FUTURE</span>
+      </div>
     </div>
   );
 });
@@ -1190,6 +1530,10 @@ function getStyles() {
       --ek-green: #3DD68C;
       --ek-blue: #5BB4F8;
       --ek-purple: #B87FFF;
+      --ek-void: #07020F;
+      --ek-ice: #BFE9FF;
+      --ek-toxic: #C6FF4A;
+      --ek-rad-yellow: #FFE45E;
       --ek-felt: #1A3A2A;
       --ek-felt-light: #254D38;
       --ek-felt-border: #2E6045;
@@ -1449,6 +1793,13 @@ function getStyles() {
     .ek-opp-mini-cards { display: flex; gap: 2px; }
     .ek-opp-mini-card { font-size: 14px; }
 
+    .ek-fx-card-icon {
+      position: absolute; bottom: 6px; right: 6px;
+      font-size: 22px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+      animation: fxIconPop .5s cubic-bezier(.34,1.56,.64,1) .2s backwards;
+    }
+    @keyframes fxIconPop { from { transform: scale(0) rotate(-30deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+
     /* ── Steal panel ── */
     .ek-steal-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 4px 0; max-height: 46vh; overflow-y: auto; padding: 6px; }
     .ek-steal-card { position: relative; width: 74px; height: 104px; padding: 0; border: none; background: none; cursor: pointer; border-radius: 10px; transform-origin: bottom center; animation: stealCardIn .4s cubic-bezier(.34,1.56,.64,1) backwards; transition: transform .18s cubic-bezier(.34,1.56,.64,1); }
@@ -1530,9 +1881,72 @@ function getStyles() {
       box-shadow: 0 0 14px rgba(255,50,50,0.5), 0 0 0 2px rgba(255,50,50,0.4) !important;
       animation: nopePulse .8s ease-in-out infinite alternate;
     }
-    .ek-card-selected-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0.12) 0%, transparent 70%); pointer-events: none; z-index: 10; }
     .ek-nope-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,50,50,0.25) 0%, transparent 70%); pointer-events: none; z-index: 10; }
-    .ek-card-label-bar { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.92), transparent); padding: 14px 6px 5px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.8); letter-spacing: .5px; z-index: 5; }
+
+    /* ── Selected card: ring glow matching the card's own color, no white wash ── */
+    .ek-hand-card-selected:not(.ek-hand-card-new) {
+      transform: translateY(-26px) scale(1.1) !important;
+      border-color: var(--card-color, var(--ek-fire)) !important;
+      box-shadow:
+        0 0 0 2px var(--card-color, var(--ek-fire)),
+        0 0 26px color-mix(in srgb, var(--card-color, var(--ek-fire)) 60%, transparent),
+        0 20px 44px rgba(0,0,0,0.55) !important;
+    }
+    .ek-hand-card-selected:not(.ek-hand-card-new)::after {
+      content: '';
+      position: absolute; inset: -6px;
+      border-radius: 16px;
+      border: 2px solid var(--card-color, var(--ek-fire));
+      opacity: 0; pointer-events: none;
+      animation: selectedRingPulse 1.6s ease-out infinite;
+    }
+    @keyframes selectedRingPulse {
+      0%   { opacity: .65; transform: scale(1); }
+      100% { opacity: 0;   transform: scale(1.18); }
+    }
+
+    /* ── Selected badge (✓ ready to play / 🔗 needs a pair) ── */
+    .ek-card-selected-badge {
+      position: absolute; top: -10px; right: -10px;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--card-color, var(--ek-fire));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: #140a02; font-weight: 900;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 0 3px #0D0D0D;
+      z-index: 20; pointer-events: none;
+      animation: badgePop .3s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes badgePop {
+      from { transform: scale(0) rotate(-25deg); opacity: 0; }
+      to   { transform: scale(1) rotate(0deg);   opacity: 1; }
+    }
+
+    /* ── "Pick a matching card" hint for cat-card pairing ── */
+    .ek-card-pair-hint {
+      position: absolute; top: -34px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,12,4,0.95); border: 1px solid var(--card-color, var(--ek-gold));
+      color: var(--ek-text); font-family: 'DM Mono', monospace; font-size: 9px;
+      letter-spacing: .5px; white-space: nowrap; padding: 4px 10px; border-radius: 8px;
+      z-index: 20; pointer-events: none; animation: pairHintIn .25s ease;
+    }
+    @keyframes pairHintIn {
+      from { opacity: 0; transform: translate(-50%, 6px); }
+      to   { opacity: 1; transform: translate(-50%, 0); }
+    }
+
+    /* ── Cat card selected and waiting for its pair: distinct dashed gold ring ── */
+    .ek-hand-card-pairing:not(.ek-hand-card-new) {
+      border-color: var(--ek-gold) !important;
+      border-style: dashed !important;
+      box-shadow:
+        0 0 0 2px var(--ek-gold),
+        0 0 26px rgba(255,208,96,0.55),
+        0 20px 44px rgba(0,0,0,0.55) !important;
+    }
+    .ek-hand-card-pairing:not(.ek-hand-card-new)::after {
+      border-color: var(--ek-gold);
+      border-style: dashed;
+    }
     .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
     /* ══ MY HAND ══ */
@@ -1549,7 +1963,7 @@ function getStyles() {
     .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 10px; padding: 0; flex: 1; min-height: calc(var(--ek-card-h) + 20px); align-items: flex-end; }
 
     .ek-action-strip { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-    @media (max-width: 1024px) {
+    @media (max-width: 1024px) and (min-width: 641px) {
       .ek-action-strip { flex-direction: row; gap: 8px; }
     }
     @media (max-width: 640px) {
@@ -1691,6 +2105,113 @@ function getStyles() {
     .ek-gameover-name { font-family: 'Bebas Neue', sans-serif; font-size: 52px; letter-spacing: 2px; background: linear-gradient(120deg, var(--ek-fire), var(--ek-gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .ek-gameover-sub { font-size: 13px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-bottom: 28px; }
 
+    .ek-noped-flash {
+      position: fixed; inset: 0; z-index: 250;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,30,30,0.18);
+      animation: nopedFlashBg .7s ease-out forwards; pointer-events: none;
+    }
+    @keyframes nopedFlashBg { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+    .ek-noped-flash-text {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(40px, 10vw, 72px);
+      letter-spacing: 6px; color: #ff5050;
+      text-shadow: 0 0 30px #ff0000, 0 0 60px #ff0000;
+      animation: nopedTextPop .7s cubic-bezier(.34,1.56,.64,1) forwards;
+    }
+    @keyframes nopedTextPop {
+      0% { transform: scale(.3) rotate(-15deg); opacity: 0; }
+      30% { transform: scale(1.2) rotate(5deg); opacity: 1; }
+      60% { transform: scale(1) rotate(0); opacity: 1; }
+      100% { transform: scale(1) rotate(0); opacity: 0; }
+    }
+
+    /* ══ IMPLODING KITTEN SINGULARITY EFFECT ══ */
+    .ek-implode-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+
+    .ek-implode-void {
+      position: absolute; width: 40px; height: 40px; border-radius: 50%;
+      background: radial-gradient(circle, #000 0%, var(--ek-void) 45%, rgba(184,127,255,0.25) 70%, transparent 100%);
+      box-shadow: 0 0 80px 40px rgba(184,127,255,0.25);
+      z-index: 1;
+      animation: implodeVoidGrow 2.6s cubic-bezier(.2,.7,.3,1) forwards;
+    }
+    @keyframes implodeVoidGrow {
+      0%   { transform: scale(0.2); opacity: 0; }
+      35%  { transform: scale(10);  opacity: 1; }
+      70%  { transform: scale(13);  opacity: 1; }
+      100% { transform: scale(2);   opacity: 0; }
+    }
+
+    .ek-implode-ring {
+      position: absolute; border-radius: 50%; border: 3px solid var(--ek-purple);
+      z-index: 2; pointer-events: none;
+      animation: implodeRingCollapse 1.1s cubic-bezier(.6,0,.8,.2) forwards;
+    }
+    .ek-implode-ring-1 { width: 480px; height: 480px; border-color: var(--ek-blue); }
+    .ek-implode-ring-2 { width: 620px; height: 620px; border-color: var(--ek-purple); animation-delay: .15s; }
+    .ek-implode-ring-3 { width: 760px; height: 760px; border-color: #fff; animation-delay: .3s; }
+    @keyframes implodeRingCollapse {
+      0%   { opacity: 0;  transform: scale(1); }
+      20%  { opacity: .8; }
+      100% { opacity: 0;  transform: scale(0.05); }
+    }
+
+    .ek-implode-particle {
+      position: absolute;
+      width: var(--size, 6px); height: var(--size, 6px); border-radius: 50%;
+      background: radial-gradient(circle, #fff, var(--ek-blue), var(--ek-purple));
+      box-shadow: 0 0 10px var(--ek-purple);
+      z-index: 3;
+      animation: implodeParticlePull 1.3s cubic-bezier(.5,0,.9,.4) var(--delay, 0s) forwards;
+    }
+    @keyframes implodeParticlePull {
+      0%   { opacity: 1; transform: rotate(var(--angle)) translateX(var(--dist)) scale(1); }
+      100% { opacity: 0; transform: rotate(var(--angle)) translateX(0) scale(0); }
+    }
+
+    .ek-implode-card-pull {
+      position: relative; z-index: 5;
+      animation: implodeCardSuck 2.6s cubic-bezier(.5,0,.7,.3) forwards;
+    }
+    @keyframes implodeCardSuck {
+      0%   { transform: scale(0)    rotate(180deg); opacity: 0; }
+      20%  { transform: scale(1.3)  rotate(0deg);   opacity: 1; }
+      35%  { transform: scale(1.15) rotate(-4deg);  opacity: 1; }
+      70%  { transform: scale(1.1)  rotate(0deg);   opacity: 1; filter: brightness(1) saturate(1); }
+      100% { transform: scale(0)    rotate(540deg); opacity: 0; filter: brightness(0.2) saturate(0); }
+    }
+    .ek-implode-card-inner {
+      width: 160px; height: 224px; border-radius: 16px; overflow: hidden;
+      border: 3px solid var(--ek-purple);
+      box-shadow: 0 0 0 2px var(--ek-blue), 0 0 50px var(--ek-purple), 0 24px 60px rgba(0,0,0,0.8);
+    }
+    .ek-implode-card-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .ek-implode-text {
+      position: absolute; z-index: 6; bottom: 16%;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      animation: implodeTextIn 2.6s ease forwards; pointer-events: none; text-align: center;
+    }
+    @keyframes implodeTextIn {
+      0%   { opacity: 0; transform: scale(.6) translateY(20px); letter-spacing: 20px; filter: blur(8px); }
+      25%  { opacity: 1; transform: scale(1)  translateY(0);    letter-spacing: 6px;  filter: blur(0); }
+      75%  { opacity: 1; }
+      100% { opacity: 0; transform: scale(.9) translateY(-12px); }
+    }
+    .ek-implode-text-main {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(48px, 12vw, 84px);
+      letter-spacing: 6px; color: var(--ek-ice);
+      text-shadow: 0 0 20px var(--ek-purple), 0 0 50px var(--ek-blue), 0 0 90px #fff;
+    }
+    .ek-implode-text-sub {
+      font-family: 'DM Mono', monospace; font-size: clamp(11px, 2.6vw, 14px);
+      letter-spacing: 3px; color: var(--ek-purple); text-shadow: 0 0 12px var(--ek-purple);
+    }
+
     /* ── Face-up card on draw pile ── */
     .ek-pile-faceup {
       border-color: #b0bec5 !important;
@@ -1735,11 +2256,280 @@ function getStyles() {
       text-transform: uppercase; line-height: 1;
     }
 
+    /* ══ CATOMIC BOMB RADIATION BURST EFFECT ══ */
+    .ek-catomic-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+      animation: catomicShake 0.6s cubic-bezier(.36,.07,.19,.97) forwards;
+    }
+    @keyframes catomicShake {
+      0%   { transform: translate(0,0); }
+      20%  { transform: translate(6px,-6px) rotate(.5deg); }
+      40%  { transform: translate(-8px,4px) rotate(-.5deg); }
+      60%  { transform: translate(5px,-3px); }
+      80%  { transform: translate(-3px,2px); }
+      100% { transform: translate(0,0); }
+    }
+
+    .ek-catomic-flash {
+      position: absolute; inset: 0; z-index: 1;
+      background: radial-gradient(ellipse at center, rgba(255,255,180,0.95) 0%, rgba(198,255,74,0.55) 40%, transparent 75%);
+      animation: catomicFlash .8s ease-out forwards;
+    }
+    @keyframes catomicFlash {
+      0%   { opacity: 0; }
+      10%  { opacity: 1; }
+      40%  { opacity: .5; }
+      100% { opacity: 0; }
+    }
+
+    .ek-catomic-ring {
+      position: absolute; border-radius: 50%; border: 4px solid var(--ek-toxic);
+      width: 70px; height: 70px;
+      z-index: 3; pointer-events: none;
+      animation: catomicRingExpand 1.4s cubic-bezier(.1,.5,.3,1) forwards;
+    }
+    .ek-catomic-ring-1 { border-color: var(--ek-rad-yellow); }
+    .ek-catomic-ring-2 { border-color: var(--ek-toxic); animation-delay: .15s; }
+    .ek-catomic-ring-3 { border-color: rgba(255,255,255,0.7); animation-delay: .3s; }
+    @keyframes catomicRingExpand {
+      0%   { opacity: 1;  transform: scale(0.3); }
+      70%  { opacity: .6; }
+      100% { opacity: 0;  transform: scale(14); }
+    }
+
+    .ek-catomic-symbol {
+      position: relative; z-index: 5;
+      font-size: clamp(80px, 20vw, 160px);
+      color: var(--ek-toxic);
+      text-shadow: 0 0 30px var(--ek-toxic), 0 0 70px var(--ek-rad-yellow);
+      animation: catomicSymbolSpin 2.4s cubic-bezier(.2,.8,.3,1) forwards;
+    }
+    @keyframes catomicSymbolSpin {
+      0%   { transform: scale(0)    rotate(-180deg); opacity: 0; }
+      25%  { transform: scale(1.3)  rotate(30deg);   opacity: 1; }
+      45%  { transform: scale(1)    rotate(0deg);    opacity: 1; }
+      85%  { transform: scale(1)    rotate(360deg);  opacity: 1; }
+      100% { transform: scale(0.6)  rotate(380deg);  opacity: 0; }
+    }
+
+    .ek-catomic-particle {
+      position: absolute; width: 9px; height: 9px; border-radius: 2px;
+      background: linear-gradient(135deg, var(--ek-rad-yellow), var(--ek-toxic));
+      box-shadow: 0 0 10px var(--ek-toxic);
+      z-index: 4;
+      animation: catomicParticleFly 1.2s cubic-bezier(.1,.7,.3,1) var(--delay, 0s) forwards;
+    }
+    @keyframes catomicParticleFly {
+      0%   { opacity: 1; transform: translate(0,0) scale(1); }
+      100% { opacity: 0; transform: rotate(var(--angle)) translateX(var(--dist)) scale(0.3); }
+    }
+
+    .ek-catomic-text {
+      position: absolute; z-index: 6; top: 16%;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      animation: catomicTextIn 2.4s ease forwards; pointer-events: none; text-align: center;
+    }
+    @keyframes catomicTextIn {
+      0%   { opacity: 0; transform: scale(.4) translateY(-20px); }
+      20%  { opacity: 1; transform: scale(1.1) translateY(0); }
+      35%  { transform: scale(1); }
+      75%  { opacity: 1; }
+      100% { opacity: 0; transform: scale(.9) translateY(-14px); }
+    }
+    .ek-catomic-text-main {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(40px, 11vw, 80px);
+      letter-spacing: 6px; color: #fff;
+      text-shadow: 0 0 20px var(--ek-toxic), 0 0 50px var(--ek-rad-yellow), 4px 4px 0 #4a6b00;
+    }
+    .ek-catomic-text-sub {
+      font-family: 'DM Mono', monospace; font-size: clamp(12px, 3vw, 16px);
+      letter-spacing: 4px; color: var(--ek-toxic); text-shadow: 0 0 12px var(--ek-toxic);
+    }
+
+    /* ══ SEE THE FUTURE — TIME RIFT ══ */
+    .ek-seefuture-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    .ek-seefuture-flash {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, rgba(91,180,248,0.5) 0%, rgba(184,127,255,0.25) 45%, transparent 75%);
+      animation: seefutureFlash 1.9s ease-out forwards;
+    }
+    @keyframes seefutureFlash { 0% { opacity: 0; } 12% { opacity: 1; } 50% { opacity: .4; } 100% { opacity: 0; } }
+
+    .ek-seefuture-eye {
+      position: relative; z-index: 4;
+      width: 140px; height: 80px; border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(20,30,50,0.9), rgba(10,15,30,0.95));
+      border: 3px solid var(--ek-blue);
+      box-shadow: 0 0 40px var(--ek-blue), 0 0 80px rgba(91,180,248,0.4);
+      display: flex; align-items: center; justify-content: center;
+      animation: seefutureEyeOpen 1.9s cubic-bezier(.2,.8,.3,1) forwards;
+      overflow: hidden;
+    }
+    @keyframes seefutureEyeOpen {
+      0%   { transform: scaleY(0) scaleX(0.3); opacity: 0; }
+      25%  { transform: scaleY(1) scaleX(1); opacity: 1; }
+      75%  { transform: scaleY(1) scaleX(1); opacity: 1; }
+      100% { transform: scaleY(0) scaleX(0.3); opacity: 0; }
+    }
+    .ek-seefuture-iris {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: radial-gradient(circle, var(--ek-ice) 0%, var(--ek-blue) 55%, var(--ek-purple) 100%);
+      box-shadow: 0 0 24px var(--ek-blue);
+      animation: seefutureIrisSpin 2.4s linear infinite;
+      position: relative;
+    }
+    @keyframes seefutureIrisSpin { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+    .ek-seefuture-pupil {
+      position: absolute; width: 24px; height: 24px; border-radius: 50%;
+      background: #07020F; box-shadow: 0 0 12px #000 inset;
+      animation: seefutureBlink 1.9s ease-in-out forwards;
+    }
+    @keyframes seefutureBlink {
+      0%, 100% { transform: scaleY(1); }
+      45%, 55% { transform: scaleY(0.1); }
+    }
+
+    .ek-seefuture-ring {
+      position: absolute; border-radius: 50%; border: 3px solid var(--ek-blue);
+      z-index: 2; pointer-events: none;
+      animation: seefutureRingExpand 1.9s cubic-bezier(.1,.5,.3,1) forwards;
+    }
+    .ek-seefuture-ring-1 { width: 160px; height: 160px; }
+    .ek-seefuture-ring-2 { width: 160px; height: 160px; border-color: var(--ek-purple); animation-delay: .25s; }
+    @keyframes seefutureRingExpand {
+      0%   { opacity: .9; transform: scale(0.4) rotate(0deg); }
+      100% { opacity: 0; transform: scale(6) rotate(180deg); }
+    }
+
+    .ek-seefuture-shard {
+      position: absolute; width: 8px; height: 18px; border-radius: 2px;
+      background: linear-gradient(180deg, var(--ek-ice), var(--ek-blue));
+      box-shadow: 0 0 10px var(--ek-blue);
+      z-index: 3;
+      animation: seefutureShardFly 1.5s cubic-bezier(.1,.7,.3,1) var(--delay, 0s) forwards;
+    }
+    @keyframes seefutureShardFly {
+      0%   { opacity: 0; transform: rotate(var(--angle)) translateX(0) scale(0.4); }
+      20%  { opacity: 1; }
+      100% { opacity: 0; transform: rotate(var(--angle)) translateX(var(--dist)) scale(1); }
+    }
+
+    .ek-seefuture-text {
+      position: absolute; z-index: 6; bottom: 18%;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      animation: seefutureTextIn 1.9s ease forwards; pointer-events: none; text-align: center;
+    }
+    @keyframes seefutureTextIn {
+      0%   { opacity: 0; transform: translateY(20px) scale(.7); }
+      25%  { opacity: 1; transform: translateY(0) scale(1); }
+      75%  { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-10px) scale(.95); }
+    }
+    .ek-seefuture-text-main {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(32px, 8vw, 60px);
+      letter-spacing: 5px; color: var(--ek-ice);
+      text-shadow: 0 0 16px var(--ek-blue), 0 0 40px var(--ek-purple);
+    }
+    .ek-seefuture-text-sub {
+      font-family: 'DM Mono', monospace; font-size: clamp(11px, 2.6vw, 14px);
+      letter-spacing: 4px; color: var(--ek-blue); text-shadow: 0 0 10px var(--ek-blue);
+    }
+
+    /* ══ ALTER THE FUTURE — TEMPORAL VORTEX ══ */
+    .ek-alterfuture-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+      animation: alterfutureShake 0.6s cubic-bezier(.36,.07,.19,.97) forwards;
+    }
+    @keyframes alterfutureShake {
+      0%   { transform: translate(0,0) rotate(0deg); }
+      25%  { transform: translate(4px,-4px) rotate(.4deg); }
+      50%  { transform: translate(-5px,3px) rotate(-.4deg); }
+      75%  { transform: translate(3px,-2px) rotate(.2deg); }
+      100% { transform: translate(0,0) rotate(0deg); }
+    }
+    .ek-alterfuture-flash {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, rgba(184,127,255,0.5) 0%, rgba(91,180,248,0.2) 50%, transparent 75%);
+      animation: alterfutureFlash 2s ease-out forwards;
+    }
+    @keyframes alterfutureFlash { 0% { opacity: 0; } 12% { opacity: 1; } 50% { opacity: .35; } 100% { opacity: 0; } }
+
+    .ek-alterfuture-vortex {
+      position: relative; z-index: 4; width: 200px; height: 200px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ek-alterfuture-spiral {
+      position: absolute; border-radius: 50%;
+      border: 3px solid var(--ek-purple);
+      border-top-color: var(--ek-ice);
+      border-right-color: transparent;
+      animation: alterfutureSpiralSpin 2s cubic-bezier(.4,0,.2,1) forwards;
+    }
+    .ek-alterfuture-spiral-1 { width: 200px; height: 200px; }
+    .ek-alterfuture-spiral-2 { width: 130px; height: 130px; border-color: var(--ek-blue); border-top-color: var(--ek-gold); animation-delay: .1s; animation-direction: reverse; }
+    .ek-alterfuture-spiral-3 { width: 70px; height: 70px; animation-delay: .2s; }
+    @keyframes alterfutureSpiralSpin {
+      0%   { transform: scale(0) rotate(0deg); opacity: 0; }
+      20%  { opacity: 1; }
+      80%  { opacity: 1; }
+      100% { transform: scale(1.4) rotate(720deg); opacity: 0; }
+    }
+
+    .ek-alterfuture-fragment {
+      position: absolute; font-size: 22px; z-index: 3;
+      filter: drop-shadow(0 0 8px var(--ek-purple));
+      animation: alterfutureFragmentOrbit 1.7s cubic-bezier(.3,.7,.3,1) var(--delay, 0s) forwards;
+    }
+    @keyframes alterfutureFragmentOrbit {
+      0%   { opacity: 0; transform: rotate(var(--angle)) translateX(0) scale(0.3) rotate(0deg); }
+      25%  { opacity: 1; }
+      100% { opacity: 0; transform: rotate(calc(var(--angle) + 200deg)) translateX(var(--dist)) scale(1) rotate(360deg); }
+    }
+
+    .ek-alterfuture-text {
+      position: absolute; z-index: 6; bottom: 18%;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      animation: alterfutureTextIn 2s ease forwards; pointer-events: none; text-align: center;
+    }
+    @keyframes alterfutureTextIn {
+      0%   { opacity: 0; transform: scale(.5) translateY(20px); letter-spacing: 16px; filter: blur(6px); }
+      25%  { opacity: 1; transform: scale(1) translateY(0); letter-spacing: 5px; filter: blur(0); }
+      75%  { opacity: 1; }
+      100% { opacity: 0; transform: scale(.95) translateY(-10px); }
+    }
+    .ek-alterfuture-text-main {
+      font-family: 'Bebas Neue', sans-serif; font-size: clamp(30px, 7.5vw, 56px);
+      letter-spacing: 5px; color: var(--ek-ice);
+      text-shadow: 0 0 16px var(--ek-purple), 0 0 40px var(--ek-blue);
+    }
+    .ek-alterfuture-text-sub {
+      font-family: 'DM Mono', monospace; font-size: clamp(11px, 2.6vw, 14px);
+      letter-spacing: 4px; color: var(--ek-purple); text-shadow: 0 0 10px var(--ek-purple);
+    }
+
     /* ── Reduced motion support ── */
     @media (prefers-reduced-motion: reduce) {
       .ek-spark, .ek-brand-icon, .ek-opp-pulse, .ek-my-turn-dot,
       .ek-turn-mine, .ek-hand-card-nopeable, .ek-nope-btn,
-      .ek-bomb-overlay, .ek-draw-fly, .ek-fx-layer { animation: none !important; }
+      .ek-bomb-overlay, .ek-draw-fly, .ek-fx-layer,
+      .ek-hand-card-selected::after,
+      .ek-implode-overlay, .ek-implode-void, .ek-implode-ring,
+      .ek-implode-particle, .ek-implode-card-pull, .ek-implode-text,
+      .ek-catomic-overlay, .ek-catomic-flash, .ek-catomic-ring,
+      .ek-catomic-symbol, .ek-catomic-particle, .ek-catomic-text,
+      .ek-seefuture-overlay, .ek-seefuture-flash, .ek-seefuture-eye,
+      .ek-seefuture-iris, .ek-seefuture-pupil, .ek-seefuture-ring,
+      .ek-seefuture-shard, .ek-seefuture-text,
+      .ek-alterfuture-overlay, .ek-alterfuture-flash, .ek-alterfuture-spiral,
+      .ek-alterfuture-fragment, .ek-alterfuture-text { animation: none !important; }
       .ek-hand-card, .ek-favor-card, .ek-steal-card,
       .ek-pile-card, .ek-target-btn { transition: none !important; }
     }
