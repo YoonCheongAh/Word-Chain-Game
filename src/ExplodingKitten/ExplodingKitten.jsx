@@ -9,7 +9,7 @@ import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
   resolveNopeWindow, reorderAlterTheFuture,
-  CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse
+  CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse, placeImplodingKitten,
 } from './ExplodingKittenService';
 
 // ── Inject styles ONCE at module level, not in useEffect ──
@@ -32,7 +32,10 @@ const PLAYER_SLOTS = ['player1', 'player2', 'player3', 'player4', 'player5', 'pl
 const ALL_ROLES = ['player1', 'player2', 'player3', 'player4', 'player5'];
 const ACTION_LABEL_MAP = {
   attack: 'Attack', skip: 'Skip', favor: 'Favor',
-  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal', trade_cats: 'Trade 5 Cats for Defuse'
+  shuffle: 'Shuffle', see_the_future: 'See the Future', alter_the_future: 'Alter the Future', pair: 'Cat Pair steal', 
+  trade_cats: 'Trade 5 Cats for Defuse', draw_from_bottom: 'Draw From Bottom',
+  swap_top_bottom: 'Swap Top & Bottom',
+  catomic_bomb: 'Catomic Bomb',
 };
 
 export default function ExplodingKitten() {
@@ -204,6 +207,7 @@ export default function ExplodingKitten() {
   const handleReorderAlterFuture = useCallback((reorderedCards) => reorderAlterTheFuture(roomId, myRole, reorderedCards), [roomId, myRole]);
   const handleRematch = useCallback(() => requestRematch(roomId, myRole), [roomId, myRole]);
   const handleTradeCatsForDefuse = useCallback((cardIds) => tradeFiveCatsForDefuse(roomId, myRole, cardIds), [roomId, myRole]);
+  const handlePlaceImploding = useCallback((pos) => placeImplodingKitten(roomId, myRole, pos), [roomId, myRole]);
 
   if (screen === 'lobby') {
     return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} name={name} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} />;
@@ -233,6 +237,7 @@ export default function ExplodingKitten() {
         setTradeMode={setTradeMode}
         onChooseFavorTarget={handleChooseFavorTarget}
         onSelectFavorTarget={handleSelectFavorTarget}
+        onPlaceImploding={handlePlaceImploding}
         onCloseFuture={handleCloseFuture}
         setSelectedCards={setSelectedCards}
         onTradeCatsForDefuse={handleTradeCatsForDefuse}
@@ -732,7 +737,7 @@ function GameBoardScreen({
 
             {myTurn && phase === 'play' && (
               <div className="ek-action-strip">
-                {selectedCards.length > 0 && !tradeMode && ( 
+                {selectedCards.length > 0 && !tradeMode && (
                   <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
                     ▶ Play{selectedCards.length > 0 ? ` ${CARD_META[selectedCards[0]?.type]?.label || 'Card'}` : ''}
                     {CAT_CARD_TYPES.has(selectedCards[0]?.type) ? ' (need pair)' : ''}
@@ -796,6 +801,17 @@ function GameBoardScreen({
       {phase === 'pair_target' && pending?.by === myRole && (
         <div className="ek-overlay-panel">
           <PairTargetPanel players={players} myRole={myRole} onSteal={onStealCard} />
+        </div>
+      )}
+
+      {phase === 'place_imploding' && pending?.by === myRole && bombDone && (
+        <div className="ek-overlay-panel">
+          <DefusePanel
+            drawPile={drawPile}
+            onPlaceBomb={onPlaceImploding}
+            title="Place Imploding Kitten face-up"
+            icon="💀"
+          />
         </div>
       )}
 
@@ -1031,12 +1047,12 @@ const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActi
 });
 
 /* ─── DEFUSE PANEL ───────────────────────────────────────────────────── */
-const DefusePanel = memo(function DefusePanel({ drawPile, onPlaceBomb }) {
+const DefusePanel = memo(function DefusePanel({ drawPile, onPlaceBomb, title, icon }) {
   const [pos, setPos] = useState(Math.floor(drawPile.length / 2));
   return (
     <div className="ek-panel-inner">
-      <div className="ek-panel-icon">💣</div>
-      <h3 className="ek-panel-title">Place bomb at position {pos}</h3>
+      <div className="ek-panel-icon">{icon ?? '💣'}</div>
+      <h3 className="ek-panel-title">{title ?? `Place bomb at position ${pos}`}</h3>
       <input type="range" min="0" max={drawPile.length} value={pos} onChange={e => setPos(Number(e.target.value))} className="ek-range" />
       <div className="ek-range-labels"><span>Top</span><span>Bottom</span></div>
       <button className="ek-action-btn ek-action-play" style={{ width: '100%', marginTop: 12 }} onClick={() => onPlaceBomb(pos)}>

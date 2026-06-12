@@ -18,6 +18,10 @@ export const CARD_TYPES = {
   HAIRY_POTATO_CAT: "hairy_potato_cat",
   BEARD_CAT: "beard_cat",
   RAINBOW_CAT: "rainbow_cat",
+  DRAW_FROM_BOTTOM: "draw_from_bottom",
+  IMPLODING_KITTEN: "imploding_kitten",
+  SWAP_TOP_BOTTOM: "swap_top_bottom",
+  CATOMIC_BOMB: "catomic_bomb",
 };
 
 export const CAT_CARD_TYPES = new Set([
@@ -41,6 +45,8 @@ export const NOPEABLE_TYPES = new Set([
   CARD_TYPES.HAIRY_POTATO_CAT,
   CARD_TYPES.BEARD_CAT,
   CARD_TYPES.RAINBOW_CAT,
+  CARD_TYPES.DRAW_FROM_BOTTOM,
+  CARD_TYPES.SWAP_TOP_BOTTOM
 ]);
 
 export const CARD_META = {
@@ -161,6 +167,34 @@ export const CARD_META = {
     color: "#ff88dd",
     bg: "#3d0c2c",
   },
+  [CARD_TYPES.DRAW_FROM_BOTTOM]: {
+    label: "Draw From Bottom",
+    desc: "Draw from the bottom of the deck. Counters 1 Attack turn.",
+    images: ["/Resources/exploding kitten/Draw-from-the-Bottom.webp"],
+    color: "#4fc3f7",
+    bg: "#0a1e2c",
+  },
+  [CARD_TYPES.IMPLODING_KITTEN]: {
+    label: "Imploding Kitten",
+    desc: "When drawn face-up, you implode. Cannot be defused or noped.",
+    images: ["/Resources/exploding kitten/Imploding-Kitten.webp"],
+    color: "#b0bec5",
+    bg: "#1a1a1a",
+  },
+  [CARD_TYPES.SWAP_TOP_BOTTOM]: {
+    label: "Swap Top & Bottom",
+    desc: "Swap the top and bottom cards of the draw pile without looking.",
+    images: ["/Resources/exploding kitten/Swap-Top-and-Bottom.webp"],
+    color: "#ffb74d",
+    bg: "#2c1a00",
+  },
+  [CARD_TYPES.CATOMIC_BOMB]: {
+    label: "Catomic Bomb",
+    desc: "Remove all Exploding Kittens, shuffle deck, return bombs on top. End turn.",
+    images: ["/Resources/exploding kitten/Catomic-Bomb.webp"],
+    color: "#ef5350",
+    bg: "#2c0a0a",
+  },
 };
 
 export function getCardImage(type) {
@@ -206,8 +240,11 @@ function buildBaseDeck(playerCount) {
   add(CARD_TYPES.FAVOR, playerCount);
   add(CARD_TYPES.SHUFFLE, Math.max(4, playerCount - 1));
   add(CARD_TYPES.SEE_THE_FUTURE, playerCount);
-  add(CARD_TYPES.ALTER_THE_FUTURE, 1);
+  add(CARD_TYPES.ALTER_THE_FUTURE, Math.max(2, Math.floor(playerCount / 2)));
   add(CARD_TYPES.NOPE, playerCount + 1);
+  add(CARD_TYPES.DRAW_FROM_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
+  add(CARD_TYPES.SWAP_TOP_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
+  add(CARD_TYPES.CATOMIC_BOMB, 1);
   // Cat cards — 4 × playerCount spread equally across the 5 types
   // Each type gets floor(total/5); the remainder is distributed to the first types
   const totalCats = 4 * playerCount;
@@ -317,6 +354,24 @@ function buildResolutionUpdates(pending, game) {
       }
       return updates;
     }
+    case "draw_from_bottom":
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+        "game/turn": pending.resolvedTurn,
+        "game/attackStack": pending.resolvedAttackStack,
+        [`players/${pending.by}/hand`]: pending.newHand,
+        "game/drawPile": pending.newDrawPile,
+      };
+    case "swap_top_bottom":
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
     default:
       return {
         "game/phase": "play",
@@ -373,14 +428,17 @@ export async function startGame(roomId) {
     });
   }
 
+  const implodingKitten = {
+    ...createCard(CARD_TYPES.IMPLODING_KITTEN),
+    id: 'imploding_kitten_0',
+    faceUp: false,
+  };
+
   for (let i = 0; i < extraDefuses; i++) {
-    deck.push({
-      ...createCard(CARD_TYPES.DEFUSE),
-      id: `defuse_extra_${i}`
-    });
+    deck.push({ ...createCard(CARD_TYPES.DEFUSE), id: `defuse_extra_${i}` });
   }
 
-  deck = shuffle([...deck, ...bombs]);
+  deck = shuffle([...deck, ...bombs, implodingKitten]);
 
   const startRole = roles[Math.floor(Math.random() * roles.length)];
 
@@ -793,6 +851,130 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       break;
     }
 
+    case CARD_TYPES.DRAW_FROM_BOTTOM: {
+      // Consumes 1 attack turn (like Skip), draws from bottom instead
+      const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
+      const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+
+      const drawPile = [...(game.drawPile || [])];
+      if (drawPile.length === 0) break;
+
+      // Draw from bottom = index 0
+      const drawnCard = drawPile.shift();
+      const hand = [...(players[playerRole].hand || []), drawnCard];
+
+      const pendingObj = {
+        type: "draw_from_bottom",
+        by: playerRole,
+        resolvedTurn: nextPlayer,
+        resolvedAttackStack: turnsOwed,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+        drawnCard,
+        newHand: hand,
+        newDrawPile: drawPile,
+      };
+
+      // Handle if drawn card is Exploding Kitten or Imploding Kitten
+      // (resolve after nope window — see resolveNopeWindow / buildResolutionUpdates)
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+      const logMsg = logBase + " Drew from the bottom!";
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": { open: true, expiresAt: Date.now() + 5000, pendingType: "draw_from_bottom", isCurrentlyNoped: false },
+          "game/pendingAction": pendingObj,
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: hand,
+          "game/drawPile": drawPile,
+          "game/discardPile": discard,
+          "game/turn": nextPlayer,
+          "game/attackStack": turnsOwed,
+          "game/phase": "play",
+          "game/nopeWindow": null,
+          "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        });
+      }
+      break;
+    }
+
+    case CARD_TYPES.SWAP_TOP_BOTTOM: {
+      const drawPile = [...(game.drawPile || [])];
+      if (drawPile.length >= 2) {
+        // top = last element, bottom = index 0
+        const top = drawPile[drawPile.length - 1];
+        const bottom = drawPile[0];
+        drawPile[drawPile.length - 1] = bottom;
+        drawPile[0] = top;
+      }
+
+      const pendingObj = {
+        type: "swap_top_bottom",
+        by: playerRole,
+        savedAttackStack: game.attackStack || 0,
+        savedTurn: game.turn,
+        nopeWindowPhase: "play",
+      };
+
+      const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: newHand } };
+      const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+      if (canNope) {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/drawPile": drawPile,
+          "game/phase": "nope_window",
+          "game/nopeChain": [],
+          "game/nopeWindow": { open: true, expiresAt: Date.now() + 5000, pendingType: "swap_top_bottom", isCurrentlyNoped: false },
+          "game/pendingAction": pendingObj,
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/discardPile": discard,
+          "game/drawPile": drawPile,
+          ...buildResolutionUpdates(pendingObj, game),
+          "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+        });
+      }
+      break;
+    }
+
+    case CARD_TYPES.CATOMIC_BOMB: {
+      // Remove all Exploding Kittens (not Imploding), shuffle, put bombs on top, end turn
+      const drawPile = [...(game.drawPile || [])];
+      const bombs = drawPile.filter(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
+      const withoutBombs = shuffle(drawPile.filter(c => c.type !== CARD_TYPES.EXPLODING_KITTEN));
+      // Return bombs face-down on top (end of array = top of deck)
+      const newDrawPile = [...withoutBombs, ...bombs];
+
+      const nextPlayer = getNextLivingPlayer(players, playerRole);
+      const logMsg = logBase + ` Removed ${bombs.length} bomb(s), shuffled, returned on top. Turn ends.`;
+
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/drawPile": newDrawPile,
+        "game/turn": nextPlayer,
+        "game/attackStack": 0,
+        "game/phase": "play",
+        "game/nopeWindow": null,
+        "game/pendingAction": null,
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+      break;
+    }
     default:
       return;
   }
@@ -837,12 +1019,12 @@ export async function drawCard(roomId, playerRole) {
   const hand = [...(players[playerRole].hand || [])];
   const attackStack = game.attackStack || 0;
 
+  // ── Exploding Kitten ──
   if (drawnCard.type === CARD_TYPES.EXPLODING_KITTEN) {
     const defuseIdx = hand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
     if (defuseIdx !== -1) {
       const newHand = hand.filter((_, i) => i !== defuseIdx);
       const discard = [...(game.discardPile || []), hand[defuseIdx]];
-      const logMsg = `${players[playerRole].name} drew the Exploding Kitten! Used Defuse 💣`;
       await update(ref(db, `rooms/${roomId}`), {
         [`players/${playerRole}/hand`]: newHand,
         "game/drawPile": drawPile,
@@ -850,54 +1032,78 @@ export async function drawCard(roomId, playerRole) {
         "game/phase": "defuse",
         "game/nopeWindow": null,
         "game/pendingAction": { type: "defuse", by: playerRole, bomb: drawnCard },
-        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        "game/log": [`${players[playerRole].name} drew the Exploding Kitten! Used Defuse 💣`, ...(game.log || [])].slice(0, 20),
       });
     } else {
-      const logMsg = `💥 ${players[playerRole].name} exploded! No defuse!`;
-      const newAttackStack = Math.max(0, attackStack - 1);
-      const newPlayers = {
-        ...players,
-        [playerRole]: { ...players[playerRole], alive: false },
-      };
+      const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
       const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
-      const aliveRoles = Object.keys(players).filter(
-        r => r !== playerRole && players[r].alive !== false
-      );
-
+      const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
       const updates = {
         [`players/${playerRole}/alive`]: false,
         [`players/${playerRole}/hand`]: [],
         "game/drawPile": drawPile,
         "game/discardPile": [...(game.discardPile || []), drawnCard],
         "game/turn": nextPlayer,
-        "game/attackStack": newAttackStack,
+        "game/attackStack": Math.max(0, attackStack - 1),
         "game/phase": "play",
         "game/nopeWindow": null,
-        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+        "game/log": [`💥 ${players[playerRole].name} exploded! No defuse!`, ...(game.log || [])].slice(0, 20),
       };
-
       if (aliveRoles.length <= 1) {
         updates["game/winner"] = aliveRoles[0] || null;
         updates["status"] = "finished";
       }
       await update(ref(db, `rooms/${roomId}`), updates);
     }
-  } else {
-    const newHand = [...hand, drawnCard];
-    const newAttackStack = Math.max(0, attackStack - 1);
-    const nextPlayer =
-      newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
-    const logMsg = `${players[playerRole].name} drew a card.`;
-    await update(ref(db, `rooms/${roomId}`), {
-      [`players/${playerRole}/hand`]: newHand,
-      "game/drawPile": drawPile,
-      "game/turn": nextPlayer,
-      "game/attackStack": newAttackStack,
-      "game/phase": "play",
-      "game/nopeWindow": null,
-      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
-    });
+    return;
   }
+
+  // ── Imploding Kitten ──
+  if (drawnCard.type === CARD_TYPES.IMPLODING_KITTEN) {
+    if (drawnCard.faceUp) {
+      const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
+      const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
+      const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
+      const updates = {
+        [`players/${playerRole}/alive`]: false,
+        [`players/${playerRole}/hand`]: [],
+        "game/drawPile": drawPile,
+        "game/discardPile": [...(game.discardPile || []), drawnCard],
+        "game/turn": nextPlayer,
+        "game/attackStack": Math.max(0, attackStack - 1),
+        "game/phase": "play",
+        "game/nopeWindow": null,
+        "game/log": [`💀 ${players[playerRole].name} drew the face-up Imploding Kitten and imploded!`, ...(game.log || [])].slice(0, 20),
+      };
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    } else {
+      await update(ref(db, `rooms/${roomId}`), {
+        "game/drawPile": drawPile,
+        "game/phase": "place_imploding",
+        "game/pendingAction": { type: "place_imploding", by: playerRole, bomb: { ...drawnCard, faceUp: true } },
+        "game/log": [`${players[playerRole].name} drew the Imploding Kitten. Place it back face-up!`, ...(game.log || [])].slice(0, 20),
+      });
+    }
+    return;
+  }
+
+  // ── Normal card ──
+  const newHand = [...hand, drawnCard];
+  const newAttackStack = Math.max(0, attackStack - 1);
+  const nextPlayer = newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+  await update(ref(db, `rooms/${roomId}`), {
+    [`players/${playerRole}/hand`]: newHand,
+    "game/drawPile": drawPile,
+    "game/turn": nextPlayer,
+    "game/attackStack": newAttackStack,
+    "game/phase": "play",
+    "game/nopeWindow": null,
+    "game/log": [`${players[playerRole].name} drew a card.`, ...(game.log || [])].slice(0, 20),
+  });
 }
 
 export async function placeBombAfterDefuse(roomId, playerRole, position) {
@@ -930,6 +1136,32 @@ export async function placeBombAfterDefuse(roomId, playerRole, position) {
     "game/pendingAction": null,
     "game/nopeWindow": null,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+  });
+}
+
+export async function placeImplodingKitten(roomId, playerRole, position) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const drawPile = [...(game.drawPile || [])];
+  const card = { ...game.pendingAction?.bomb, faceUp: true };
+  if (!card) return;
+
+  const fromTop = Math.max(0, Math.min(position, drawPile.length));
+  const insertIdx = drawPile.length - fromTop;
+  drawPile.splice(insertIdx, 0, card);
+
+  const attackStack = game.attackStack || 0;
+  const newAttackStack = Math.max(0, attackStack - 1);
+  const nextPlayer = newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+
+  await update(ref(db, `rooms/${roomId}`), {
+    "game/drawPile": drawPile,
+    "game/turn": nextPlayer,
+    "game/attackStack": newAttackStack,
+    "game/phase": "play",
+    "game/pendingAction": null,
+    "game/log": [`Imploding Kitten placed back face-up! 👀`, ...(game.log || [])].slice(0, 20),
   });
 }
 
