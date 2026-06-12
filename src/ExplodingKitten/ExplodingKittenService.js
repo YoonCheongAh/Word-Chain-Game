@@ -954,9 +954,21 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     case CARD_TYPES.CATOMIC_BOMB: {
       // Remove all Exploding Kittens (not Imploding), shuffle, put bombs on top, end turn
       const drawPile = [...(game.drawPile || [])];
-      const bombs = drawPile.filter(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
-      const withoutBombs = shuffle(drawPile.filter(c => c.type !== CARD_TYPES.EXPLODING_KITTEN));
-      // Return bombs face-down on top (end of array = top of deck)
+      const bombs = drawPile.filter(
+        c =>
+          c.type === CARD_TYPES.EXPLODING_KITTEN ||
+          c.type === CARD_TYPES.IMPLODING_KITTEN
+      );
+
+      const withoutBombs = shuffle(
+        drawPile.filter(
+          c =>
+            c.type !== CARD_TYPES.EXPLODING_KITTEN &&
+            c.type !== CARD_TYPES.IMPLODING_KITTEN
+        )
+      );
+
+      // Put all bomb cards back on top
       const newDrawPile = [...withoutBombs, ...bombs];
 
       const nextPlayer = getNextLivingPlayer(players, playerRole);
