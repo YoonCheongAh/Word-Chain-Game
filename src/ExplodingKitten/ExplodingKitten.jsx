@@ -51,7 +51,12 @@ const FX_ICON_MAP = {
 
 export default function ExplodingKitten() {
   const [screen, setScreen] = useState('lobby');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('ek_player_name') || '';
+    }
+    return '';
+  });
   const [inputRoomId, setInputRoomId] = useState('');
   const [roomId, setRoomId] = useState('');
   const [myRole, setMyRole] = useState('');
@@ -79,6 +84,12 @@ export default function ExplodingKitten() {
     return () => unsub?.();
   }, [roomId]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && name) {
+      localStorage.setItem('ek_player_name', name);
+    }
+  }, [name]);
+  
   // Merged status effects to avoid multiple useEffect evaluations
   useEffect(() => {
     if (!roomData) return;
