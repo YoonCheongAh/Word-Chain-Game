@@ -268,21 +268,19 @@ export async function movePawn(roomId, role, move) {
 
     // Handle capture
     if (move.captureId && !SAFE_SQUARES.has(pawn.position)) {
-        for (const [slot, slotPd] of Object.entries(ludo.playerData)) {
-            if (slot === role) continue;
-            const capIdx = slotPd.pawns.findIndex(
-                p => p.id === move.captureId && p.color === slotPd.color
-            );
-            if (capIdx < 0) continue;
+        const occupant = ludo.cachePath?.[pawn.position]; // {id, color, slot} of pawn being captured
+        if (occupant && occupant.slot !== role) {
+            const slot = occupant.slot;
+            const slotPd = ludo.playerData[slot];
+            const capIdx = slotPd.pawns.findIndex(p => p.id === occupant.id);
+            if (capIdx >= 0) {
+                const capPawn = { ...slotPd.pawns[capIdx] };
+                capPawn.active = false;
+                capPawn.position = START_POSITIONS[slotPd.color][capPawn.id - 1];
 
-            const capPawn = { ...slotPd.pawns[capIdx] };
-            newCache[capPawn.position] = null;
-            capPawn.active = false;
-            capPawn.position = START_POSITIONS[slotPd.color][capPawn.id - 1];
-
-            const newSlotPawns = slotPd.pawns.map((p, i) => (i === capIdx ? capPawn : p));
-            updates[`ludo/playerData/${slot}/pawns`] = newSlotPawns;
-            break;
+                const newSlotPawns = slotPd.pawns.map((p, i) => (i === capIdx ? capPawn : p));
+                updates[`ludo/playerData/${slot}/pawns`] = newSlotPawns;
+            }
         }
     }
 
