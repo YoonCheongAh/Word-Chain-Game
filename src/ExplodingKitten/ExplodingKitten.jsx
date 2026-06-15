@@ -51,7 +51,12 @@ const FX_ICON_MAP = {
 
 export default function ExplodingKitten() {
   const [screen, setScreen] = useState('lobby');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('ek_player_name') || '';
+    }
+    return '';
+  });
   const [inputRoomId, setInputRoomId] = useState('');
   const [roomId, setRoomId] = useState('');
   const [myRole, setMyRole] = useState('');
@@ -79,6 +84,12 @@ export default function ExplodingKitten() {
     return () => unsub?.();
   }, [roomId]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && name) {
+      localStorage.setItem('ek_player_name', name);
+    }
+  }, [name]);
+  
   // Merged status effects to avoid multiple useEffect evaluations
   useEffect(() => {
     if (!roomData) return;
@@ -690,9 +701,33 @@ function GameBoardScreen({
   }, [drawPile.length]);
 
   useEffect(() => {
-    // Reset hand order khi số lượng bài thay đổi (draw/play card)
-    setHandOrder(null);
-  }, [myHand.length]);
+    setHandOrder(prev => {
+      // Chưa từng shuffle -> luôn dùng thứ tự thật
+      if (!prev) return null;
+
+      // Giữ lại các lá vẫn còn trên tay theo thứ tự đã shuffle
+      const currentIds = new Set(myHand.map(c => c.id));
+      const next = prev.filter(c => currentIds.has(c.id));
+
+      // Thêm các lá mới (draw, favor, pair...) vào cuối
+      const orderedIds = new Set(next.map(c => c.id));
+      for (const card of myHand) {
+        if (!orderedIds.has(card.id)) {
+          next.push(card);
+        }
+      }
+
+      // Nếu không còn khác gì thì giữ nguyên reference để tránh re-render
+      if (
+        next.length === prev.length &&
+        next.every((c, i) => c.id === prev[i]?.id)
+      ) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [myHand]);
 
   const [catomicFx, setCatomicFx] = useState(null);
 
@@ -727,9 +762,7 @@ function GameBoardScreen({
   const otherRoles = ALL_ROLES.filter(r => players[r] && r !== myRole);
   const posMap = OPP_POSITIONS[otherRoles.length] || ['north'];
 
-  const displayHand = handOrder && handOrder.length === myHand.length
-    ? handOrder.filter(c => myHand.some(m => m.id === c.id))
-    : myHand;
+  const displayHand = handOrder ?? myHand;
 
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
