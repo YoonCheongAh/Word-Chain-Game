@@ -74,19 +74,31 @@ export function rollDie() {
     return Math.floor(Math.random() * 6) + 1;
 }
 
+/**
+ * Whether these dice earn the player an extra roll (same-player rolls again
+ * instead of passing to the next player).
+ * CHANGED: a 1 used to also grant an extra turn — that carve-out is removed.
+ * Only a 6 (or, for a future two-dice mode, double sixes) grants it now.
+ */
 export function isSecondChance(dice) {
     if (!dice || dice.length === 0) return false;
-    if (dice.length === 1) return dice[0] === 6 || dice[0] === 1;
-    // Two dice: doubles, or 1+6 / 6+1
-    return (
-        dice[0] === dice[1] ||
-        (dice[0] === 1 && dice[1] === 6) ||
-        (dice[0] === 6 && dice[1] === 1)
-    );
+    if (dice.length === 1) return dice[0] === 6;
+    // Two dice: only double sixes grant an extra turn.
+    return dice[0] === 6 && dice[1] === 6;
 }
 
 export function shouldPassTurn(dice) {
     return !isSecondChance(dice);
+}
+
+/**
+ * Whether these dice allow bringing a pawn OUT of the yard.
+ * Only a 6 opens the yard — same condition as isSecondChance now that the
+ * "1 also counts" carve-out has been removed from both rules. Kept as a
+ * separate named function for readability at the call site.
+ */
+export function canEnterFromYard(dice) {
+    return Array.isArray(dice) && dice.includes(6);
 }
 
 /**
@@ -101,14 +113,16 @@ export function calcAvailableMoves(pawns, dice, color, cachePath) {
     const moves = [];
     const pathArr = PATH[color];
     const diceSum = dice.reduce((a, b) => a + b, 0);
-    const canEnter = isSecondChance(dice);
+    // CHANGED: entering from the yard now requires a 6 specifically —
+    // it used to accept isSecondChance(dice), which also fired on a 1.
+    const canEnter = canEnterFromYard(dice);
 
     for (const pawn of pawns) {
         if (pawn.complete) continue;
 
         // ----- INACTIVE pawn (still in the yard) -----
         if (!pawn.active) {
-            if (!canEnter) continue;                     // need 6 or 1 to enter
+            if (!canEnter) continue;                     // need a 6 to enter
             const entryPos = pathArr[0];
             const blocker = cachePath?.[entryPos];
             if (!blocker || blocker === null) {
@@ -310,7 +324,7 @@ export async function movePawn(roomId, role, move) {
             const nextIdx = (curIdx + 1) % playerSlots.length;
             updates[`ludo/currentTurn`] = playerSlots[nextIdx];
         }
-        // If not passing (rolled 6 or 1), same player rolls again
+        // If not passing (rolled a 6), same player rolls again
         updates[`ludo/dice`] = [];
         updates[`ludo/phase`] = "roll";
     }
@@ -332,6 +346,32 @@ export async function passTurnFirebase(roomId, role) {
         dice: [],
         phase: "roll",
     });
+}
+
+// ─── NEW: xử lý khi tung xúc xắc xong nhưng KHÔNG có nước đi hợp lệ ─────────
+// Khác với passTurnFirebase (luôn chuyển lượt), hàm này tôn trọng rule
+// "tung được 6 thì được tung tiếp": nếu dice là 6 (isSecondChance === true)
+// nhưng vẫn không có nước đi nào, người chơi giữ lượt và chỉ tung lại,
+// không bị chuyển sang người kế tiếp.
+export async function handleNoMoves(roomId, role) {
+    const snap = await get(ref(db, `rooms/${roomId}/ludo`));
+    const ludo = snap.val();
+    if (!ludo || ludo.currentTurn !== role || ludo.phase !== "move") return;
+
+    const dice = ludo.dice;
+    const updates = { dice: [], phase: "roll" };
+
+    if (shouldPassTurn(dice)) {
+        // Không phải 6 (hoặc không double-six) -> hết nước đi thì chuyển lượt
+        const playerSlots = Object.keys(ludo.playerData);
+        const curIdx = playerSlots.indexOf(role);
+        const nextIdx = (curIdx + 1) % playerSlots.length;
+        updates.currentTurn = playerSlots[nextIdx];
+    }
+    // Nếu là 6 (isSecondChance === true) -> giữ nguyên currentTurn,
+    // chỉ reset dice + phase để người đó tung lại
+
+    await update(ref(db, `rooms/${roomId}/ludo`), updates);
 }
 
 export async function requestLudoRematch(roomId, role) {

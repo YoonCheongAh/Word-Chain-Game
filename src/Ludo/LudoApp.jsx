@@ -3,7 +3,7 @@ import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomServic
 import { playSound, setMuted } from "./Ludosound";
 import {
     startLudoGame, rollDiceFirebase, movePawn, passTurnFirebase, requestLudoRematch,
-    POINTS, START_POSITIONS, PATH, calcAvailableMoves, shouldPassTurn,
+    POINTS, START_POSITIONS, PATH, calcAvailableMoves, shouldPassTurn, handleNoMoves,
 } from "./ludoService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
@@ -147,6 +147,14 @@ const STYLES = `
     border:3px solid var(--c-border);
     box-shadow:0 20px 50px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.03);
   }
+  .ludo-board-wrap.shaking { animation: screenShake .4s ease; }
+  @keyframes screenShake {
+    0%,100% { transform: translate(0,0); }
+    20% { transform: translate(-6px,4px); }
+    40% { transform: translate(6px,-4px); }
+    60% { transform: translate(-4px,-4px); }
+    80% { transform: translate(4px,4px); }
+  }
   .ludo-board-img { width:100%; display:block; user-select:none; }
   .ludo-board-fallback { width:100%; aspect-ratio:1; display:flex; align-items:center; justify-content:center; background:#1a1a2e; color:var(--c-muted); font-family:'JetBrains Mono',monospace; font-size:13px; text-align:center; padding:20px; }
   .ludo-pawns-layer { position:absolute; inset:0; }
@@ -214,7 +222,13 @@ const STYLES = `
   .ludo-sidebar-score { font-family:'JetBrains Mono',monospace; font-size:10px; text-align:center; margin-top:5px; font-weight:700; }
   .ludo-gameover { padding-top:28px; animation:floatIn .5s ease; }
   .ludo-go-card { background:linear-gradient(180deg, rgba(27,36,56,.95), rgba(19,26,43,.95)); border:1px solid var(--c-border); border-radius:20px; padding:26px 22px; box-shadow:0 20px 50px rgba(0,0,0,.4); }
-  .ludo-go-icon  { text-align:center; font-size:46px; margin-bottom:8px; filter:drop-shadow(0 4px 12px rgba(250,204,21,.4)); }
+  .ludo-go-icon  { position:relative; text-align:center; font-size:46px; margin-bottom:8px; filter:drop-shadow(0 4px 12px rgba(250,204,21,.4)); }
+  .ludo-go-icon::before {
+    content:''; position:absolute; inset:-30px; z-index:-1;
+    background: radial-gradient(circle, rgba(250,204,21,.35), transparent 70%);
+    animation: goPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes goPulse { 0%,100%{transform:scale(.9);opacity:.6} 50%{transform:scale(1.3);opacity:1} }
   .ludo-go-title { font-size:26px; font-weight:900; text-align:center; margin-bottom:4px; }
   .ludo-go-sub   { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--c-muted); text-align:center; margin-bottom:20px; }
   .ludo-lb-row { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:12px; background:rgba(10,14,26,.5); margin-bottom:6px; border:1px solid transparent; }
@@ -232,6 +246,24 @@ const STYLES = `
   .ludo-loading { padding-top:60px; text-align:center; color:var(--c-muted); font-family:'JetBrains Mono',monospace; font-size:13px; }
   .ludo-mute-btn { background:rgba(255,255,255,.04); border:1px solid var(--c-border); border-radius:10px; color:var(--c-muted); cursor:pointer; font-size:16px; line-height:1; padding:7px 11px; transition:border-color .15s; }
   .ludo-mute-btn:hover { border-color:var(--c-blue); }
+
+  /* ── SPECIAL MOVE BANNER ── */
+  .ludo-specialfx {
+    position: fixed; top: 16%; left: 50%; transform: translate(-50%, -50%);
+    font-family: 'Fredoka', sans-serif; font-weight: 800; font-size: 26px;
+    padding: 14px 26px; border-radius: 16px; z-index: 150; text-align:center;
+    background: linear-gradient(135deg, rgba(250,204,21,.95), rgba(255,77,77,.95));
+    color:#1a1a1a; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    animation: fxPop .45s cubic-bezier(.34,1.6,.5,1), fxFade .3s ease .9s forwards;
+    pointer-events: none; white-space: nowrap;
+  }
+  @keyframes fxPop {
+    from { opacity:0; transform:translate(-50%,-50%) scale(.4) rotate(-8deg); }
+    to   { opacity:1; transform:translate(-50%,-50%) scale(1) rotate(0); }
+  }
+  @keyframes fxFade {
+    to { opacity:0; transform:translate(-50%,-70%) scale(.9); }
+  }
 `;
 
 /* ─── 3D DICE COMPONENT ───────────────────────────────── */
@@ -269,6 +301,71 @@ function Dice3D({ value, rolling }) {
     );
 }
 
+/* ─── WIN CONFETTI ─────────────────────────────────────
+ * Lightweight canvas confetti burst, no external libs.
+ * Remounted (via `key`) each time a new winner is set, so it fires once
+ * per round rather than looping. */
+function ConfettiBurst() {
+    const canvasRef = useRef(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const c2d = canvas.getContext("2d");
+        const W = (canvas.width = window.innerWidth);
+        const H = (canvas.height = window.innerHeight);
+        const colors = ["#ff4d4d", "#22c55e", "#facc15", "#3b82f6", "#ffffff"];
+
+        const particles = Array.from({ length: 160 }, () => ({
+            x: W / 2,
+            y: H / 2.4,
+            vx: (Math.random() - 0.5) * 15,
+            vy: Math.random() * -15 - 5,
+            size: Math.random() * 7 + 4,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            rot: Math.random() * 360,
+            vr: (Math.random() - 0.5) * 12,
+            life: 1,
+        }));
+
+        let raf;
+        function tick() {
+            c2d.clearRect(0, 0, W, H);
+            let alive = false;
+            particles.forEach((p) => {
+                if (p.life <= 0) return;
+                alive = true;
+                p.vy += 0.35; // gravity
+                p.x += p.vx;
+                p.y += p.vy;
+                p.rot += p.vr;
+                p.life -= 0.007;
+                c2d.save();
+                c2d.translate(p.x, p.y);
+                c2d.rotate((p.rot * Math.PI) / 180);
+                c2d.globalAlpha = Math.max(p.life, 0);
+                c2d.fillStyle = p.color;
+                c2d.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+                c2d.restore();
+            });
+            if (alive) {
+                raf = requestAnimationFrame(tick);
+            } else {
+                c2d.clearRect(0, 0, W, H);
+            }
+        }
+        tick();
+        return () => cancelAnimationFrame(raf);
+    }, []);
+
+    return (
+        <canvas
+            ref={canvasRef}
+            style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 200 }}
+        />
+    );
+}
+
 export default function LudoApp() {
     const [screen, setScreen] = useState("lobby");
     const [name, setName] = useState("");
@@ -284,6 +381,9 @@ export default function LudoApp() {
     const [boardW, setBoardW] = useState(400);
     const [boardImgOk, setBoardImgOk] = useState(true);
     const [mute, setMute] = useState(false);
+
+    // ── effect #3: special-move banner ──
+    const [specialFx, setSpecialFx] = useState(null); // {text}
 
     const boardWrapRef = useRef(null);
     const prevTurnRef = useRef(null);
@@ -360,14 +460,47 @@ export default function LudoApp() {
         return () => clearTimeout(t);
     }, [notice]);
 
-    /* Auto-pass when no legal moves */
+    /* Special-fx auto-clear */
+    useEffect(() => {
+        if (!specialFx) return;
+        const t = setTimeout(() => setSpecialFx(null), 1200);
+        return () => clearTimeout(t);
+    }, [specialFx]);
+
+    /* Effect #3a: special banner + sound when dice show a 6.
+     * CHANGED: rolling a 1 used to also grant an extra turn and show its own
+     * banner ("✨ MỘT! Được đi tiếp!") — that rule is removed, so a 1 is now
+     * just a normal roll with no special effect. Only a 6 triggers this
+     * (it opens the yard AND grants an extra roll — see ludoService). */
+    useEffect(() => {
+        if (!ludo || dice.length === 0) return;
+        if (dice[0] === 6) {
+            setSpecialFx({ text: "🔥 Wow, bạn thật may mắn!" });
+            playSound("special");
+        }
+    }, [JSON.stringify(dice)]);
+
+    /* Auto-pass when no legal moves.
+     * FIXED: previously this always called passTurnFirebase, which handed
+     * the turn to the next player even when the dice showed a 6. That broke
+     * the "roll a 6, go again" rule whenever the 6 happened to have no legal
+     * move (yard blocked by own pawn, board full, etc). Now it delegates to
+     * handleNoMoves, which keeps the turn with the same player and just
+     * re-rolls when the dice qualify for a second chance (isSecondChance),
+     * and only passes to the next player otherwise. */
     useEffect(() => {
         if (!ludo || !isMyTurn || phase !== "move" || dice.length === 0) return;
         if (availableMoves.length > 0) return;
+        const getsAnotherRoll = !shouldPassTurn(dice);
         const t = setTimeout(() => {
             playSound("pass");
-            setNotice({ text: "Không có nước đi, bỏ lượt!", type: "warn" });
-            passTurnFirebase(roomId, myRole);
+            setNotice({
+                text: getsAnotherRoll
+                    ? "Không có nước đi, được tung lại!"
+                    : "Không có nước đi, bỏ lượt!",
+                type: "warn",
+            });
+            handleNoMoves(roomId, myRole);
         }, 900);
         return () => clearTimeout(t);
     }, [phase, JSON.stringify(dice), isMyTurn]);
@@ -381,12 +514,13 @@ export default function LudoApp() {
         prevTurnRef.current = currentTurn;
     }, [currentTurn, isMyTurn]);
 
-    /* Sound: pawn reaches home */
+    /* Sound + fx: pawn reaches home */
     useEffect(() => {
         if (!myPD) return;
         const count = myPD.pawns.filter(p => p.complete).length;
         if (count > prevCompleteRef.current) {
             playSound("home");
+            setSpecialFx({ text: "🏠 VỀ ĐÍCH!" });
         }
         prevCompleteRef.current = count;
     }, [myPD?.pawns]);
@@ -463,6 +597,9 @@ export default function LudoApp() {
         setTimeout(() => setRolling(false), 550);
     }
 
+    // ── effect #2 state (screen shake on capture) ──
+    // (declared here, close to where it's used, to keep the diff readable)
+    // eslint-disable-next-line no-use-before-define
     async function handlePawnClick(pawnId, color) {
         if (!isMyTurn || phase !== "move" || color !== myColor) return;
         const move = availableMoves.find(m => m.pawnId === pawnId);
@@ -473,6 +610,8 @@ export default function LudoApp() {
             playSound("enter");
         } else if (move.captureId) {
             playSound("capture");
+            setSpecialFx({ text: "💥 ĂN QUÂN!" });
+            triggerShake();
         } else {
             playSound("move");
         }
@@ -522,6 +661,13 @@ export default function LudoApp() {
         navigator.clipboard?.writeText(roomId).catch(() => { });
         setCopiedToast(true);
         setTimeout(() => setCopiedToast(false), 1800);
+    }
+
+    /* ── effect #2: screen shake on capture ── */
+    const [shake, setShake] = useState(false);
+    function triggerShake() {
+        setShake(true);
+        setTimeout(() => setShake(false), 400);
     }
 
     /* ─── Sub-components ───────────────────────────────────── */
@@ -690,6 +836,8 @@ export default function LudoApp() {
         return (
             <div className="ludo-app">
                 {dissolved && <DissolvedOverlay />}
+                {/* effect #2: win confetti — remounts (key=winner) once per new round */}
+                <ConfettiBurst key={ludo.winner} />
                 <div className="ludo-gameover">
                     <div className="ludo-go-card">
                         <div className="ludo-go-icon">🏆</div>
@@ -795,8 +943,11 @@ export default function LudoApp() {
                 {/* Notice */}
                 {notice && <div className={`ludo-notice ludo-notice-${notice.type}`}>{notice.text}</div>}
 
+                {/* effect #3: special move banner (six roll / capture / home) */}
+                {specialFx && <div className="ludo-specialfx">{specialFx.text}</div>}
+
                 {/* Board */}
-                <div className="ludo-board-wrap" ref={boardWrapRef}>
+                <div className={`ludo-board-wrap${shake ? " shaking" : ""}`} ref={boardWrapRef}>
                     {boardImgOk
                         ? <img src={ASSETS.board} alt="board" className="ludo-board-img"
                             onError={() => setBoardImgOk(false)} />
@@ -811,7 +962,7 @@ export default function LudoApp() {
                                 <img
                                     key={key}
                                     className={`ludo-pawn${canMove ? " movable" : ""}`}
-                                    src={ASSETS.pawns[pd.color]}                                    
+                                    src={ASSETS.pawns[pd.color]}
                                     alt={`${pd.color}${pawn.id}`}
                                     style={{
                                         left: pos.left,

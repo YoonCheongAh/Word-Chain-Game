@@ -14,6 +14,7 @@
  *   playSound("turn");      // đến lượt mình
  *   playSound("pass");      // bỏ lượt / không có nước đi
  *   playSound("click");     // bấm nút thông thường
+ *   playSound("special");   // nước đi đặc biệt (ra số 6)
  */
 
 let ctx = null;
@@ -165,11 +166,31 @@ const SOUNDS = {
         noise(ac, t, 0.025, 0.12);
         osc(ac, "square", 1200, t, 0.02, 0.06);
     },
+
+    /**
+     * Special move (rolled a 6 — the only number that opens the yard and
+     * grants an extra turn): a quick sparkly ascending arpeggio with a
+     * shimmer on top, distinct from the plain "dice" rattle so it reads
+     * as a bonus rather than a routine roll.
+     */
+    special(ac) {
+        const t = ac.currentTime;
+        const arpeggio = [660, 880, 1108, 1320];
+        arpeggio.forEach((freq, i) => {
+            osc(ac, "triangle", freq, t + i * 0.055, 0.16, 0.16);
+            osc(ac, "sine", freq * 2, t + i * 0.055, 0.10, 0.05);
+        });
+        // shimmer tail
+        for (let i = 0; i < 6; i++) {
+            const freq = 1500 + Math.random() * 900;
+            osc(ac, "sine", freq, t + 0.22 + i * 0.03, 0.12, 0.045);
+        }
+    },
 };
 
 /**
  * Play a sound by name.
- * @param {"dice"|"move"|"capture"|"enter"|"home"|"win"|"turn"|"pass"|"click"} name
+ * @param {"dice"|"move"|"capture"|"enter"|"home"|"win"|"turn"|"pass"|"click"|"special"} name
  */
 export function playSound(name) {
     if (muted) return;
