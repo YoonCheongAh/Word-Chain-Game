@@ -22,8 +22,9 @@ export const CARD_TYPES = {
   IMPLODING_KITTEN: "imploding_kitten",
   SWAP_TOP_BOTTOM: "swap_top_bottom",
   CATOMIC_BOMB: "catomic_bomb",
+  STREAKING_KITTEN: "streaking_kitten",
 };
-
+export const INCLUDE_STREAKING_KITTEN = true;
 export const CAT_CARD_TYPES = new Set([
   CARD_TYPES.TACOCAT,
   CARD_TYPES.CATTERMELON,
@@ -195,6 +196,13 @@ export const CARD_META = {
     color: "#ef5350",
     bg: "#2c0a0a",
   },
+  [CARD_TYPES.STREAKING_KITTEN]: {
+    label: "Streaking Kitten",
+    desc: "Giữ bí mật. Khi còn trong tay, bạn có thể rút và giấu 1 Exploding Kitten mà không bị nổ.",
+    images: ["/Resources/exploding kitten/Streaking-Kitten.webp"],
+    color: "#ff69b4",
+    bg: "#3d0c26",
+  },
 };
 
 export function getCardImage(type) {
@@ -296,6 +304,13 @@ function anyPlayerHasNope(players, excludeRole = null) {
     if (p?.alive === false) return false;
     return (p?.hand || []).some(c => c.type === CARD_TYPES.NOPE);
   });
+}
+
+function hasStreakingKitten(hand) {
+  return (hand || []).some(c => c.type === CARD_TYPES.STREAKING_KITTEN);
+}
+function hasHiddenExplodingKitten(hand) {
+  return (hand || []).some(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
 }
 
 function buildResolutionUpdates(pending, game) {
@@ -420,8 +435,9 @@ export async function startGame(roomId) {
     });
   }
 
+  const bombCount = INCLUDE_STREAKING_KITTEN ? playerCount : playerCount - 1;
   const bombs = [];
-  for (let i = 0; i < playerCount - 1; i++) {
+  for (let i = 0; i < bombCount; i++) {
     bombs.push({
       ...createCard(CARD_TYPES.EXPLODING_KITTEN),
       id: `bomb_${i}`
@@ -434,12 +450,13 @@ export async function startGame(roomId) {
     faceUp: false,
   };
 
+  const streakingKitten = INCLUDE_STREAKING_KITTEN ? { ...createCard(CARD_TYPES.STREAKING_KITTEN), id: 'streaking_kitten_0' }: null;
+
   for (let i = 0; i < extraDefuses; i++) {
     deck.push({ ...createCard(CARD_TYPES.DEFUSE), id: `defuse_extra_${i}` });
   }
 
-  deck = shuffle([...deck, ...bombs, implodingKitten]);
-
+  deck = shuffle([...deck, ...bombs, implodingKitten, ...(streakingKitten ? [streakingKitten] : []),]);
   const startRole = roles[Math.floor(Math.random() * roles.length)];
 
   const playerUpdates = {};
@@ -863,42 +880,60 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       let logMsg;
 
       if (drawnCard.type === CARD_TYPES.EXPLODING_KITTEN) {
-        const defuseIdx = handAfterPlay.findIndex(c => c.type === CARD_TYPES.DEFUSE);
-        if (defuseIdx !== -1) {
-          // Có Defuse → gỡ bom, chờ đặt lại vào bộ bài
-          const handAfterDefuse = handAfterPlay.filter((_, i) => i !== defuseIdx);
+        if (hasStreakingKitten(handAfterPlay) && !hasHiddenExplodingKitten(handAfterPlay)) {
+          const turnsOwed = Math.max(0, (game.attackStack || 0) - 1);
+          const nextPlayer = turnsOwed > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
           resolutionUpdates = {
-            [`players/${playerRole}/hand`]: handAfterDefuse,
+            [`players/${playerRole}/hand`]: [...handAfterPlay, drawnCard],
             "game/drawPile": drawPile,
-            "game/discardPile": [...discard, handAfterPlay[defuseIdx]],
-            "game/phase": "defuse",
-            "game/nopeWindow": null,
-            "game/nopeChain": [],
-            "game/pendingAction": { type: "defuse", by: playerRole, bomb: drawnCard },
-          };
-          logMsg = logBase + " Drew the Exploding Kitten from the bottom! Used Defuse 💣";
-        } else {
-          // Không có Defuse → nổ
-          const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
-          const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
-          const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
-          resolutionUpdates = {
-            [`players/${playerRole}/hand`]: [],
-            [`players/${playerRole}/alive`]: false,
-            "game/drawPile": drawPile,
-            "game/discardPile": [...discard, drawnCard],
+            "game/discardPile": discard,
             "game/turn": nextPlayer,
-            "game/attackStack": 0,
+            "game/attackStack": turnsOwed,
             "game/phase": "play",
             "game/nopeWindow": null,
             "game/nopeChain": [],
             "game/pendingAction": null,
-          };
-          if (aliveRoles.length <= 1) {
-            resolutionUpdates["game/winner"] = aliveRoles[0] || null;
-            resolutionUpdates["status"] = "finished";
+         };
+         logMsg = logBase + " Drew from the bottom.";
+        } 
+        else {
+          const defuseIdx = handAfterPlay.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+          if (defuseIdx !== -1) {
+            // Có Defuse → gỡ bom, chờ đặt lại vào bộ bài
+            const handAfterDefuse = handAfterPlay.filter((_, i) => i !== defuseIdx);
+            resolutionUpdates = {
+              [`players/${playerRole}/hand`]: handAfterDefuse,
+              "game/drawPile": drawPile,
+              "game/discardPile": [...discard, handAfterPlay[defuseIdx]],
+              "game/phase": "defuse",
+              "game/nopeWindow": null,
+              "game/nopeChain": [],
+              "game/pendingAction": { type: "defuse", by: playerRole, bomb: drawnCard },
+            };
+            logMsg = logBase + " Drew the Exploding Kitten from the bottom! Used Defuse 💣";
+          } else {
+            // Không có Defuse → nổ
+            const newPlayers = { ...players, [playerRole]: { ...players[playerRole], alive: false } };
+            const nextPlayer = getNextLivingPlayer(newPlayers, playerRole);
+            const aliveRoles = Object.keys(players).filter(r => r !== playerRole && players[r].alive !== false);
+            resolutionUpdates = {
+              [`players/${playerRole}/hand`]: [],
+              [`players/${playerRole}/alive`]: false,
+              "game/drawPile": drawPile,
+              "game/discardPile": [...discard, drawnCard],
+              "game/turn": nextPlayer,
+              "game/attackStack": 0,
+              "game/phase": "play",
+              "game/nopeWindow": null,
+              "game/nopeChain": [],
+              "game/pendingAction": null,
+            };
+            if (aliveRoles.length <= 1) {
+              resolutionUpdates["game/winner"] = aliveRoles[0] || null;
+              resolutionUpdates["status"] = "finished";
+            }
+            logMsg = `💥 ${players[playerRole].name} drew the Exploding Kitten from the bottom and exploded!`;
           }
-          logMsg = `💥 ${players[playerRole].name} drew the Exploding Kitten from the bottom and exploded!`;
         }
       } else if (drawnCard.type === CARD_TYPES.IMPLODING_KITTEN && drawnCard.faceUp) {
         // Imploding Kitten đã lật mặt ở đáy → nổ ngay, không thể Defuse
@@ -1109,6 +1144,22 @@ export async function drawCard(roomId, playerRole) {
 
   // ── Exploding Kitten ──
   if (drawnCard.type === CARD_TYPES.EXPLODING_KITTEN) {
+    if (hasStreakingKitten(hand) && !hasHiddenExplodingKitten(hand)) {
+        const newHand = [...hand, drawnCard];
+        const newAttackStack = Math.max(0, attackStack - 1);
+        const nextPlayer = newAttackStack > 0 ? playerRole : getNextLivingPlayer(players, playerRole);
+        await update(ref(db, `rooms/${roomId}`), {
+          [`players/${playerRole}/hand`]: newHand,
+          "game/drawPile": drawPile,
+        "game/turn": nextPlayer,
+        "game/attackStack": newAttackStack,
+        "game/phase": "play",
+        "game/nopeWindow": null,
+          "game/log": [`${players[playerRole].name} drew a card.`, ...(game.log || [])].slice(0, 20),
+        });
+        return;
+      }
+
     const defuseIdx = hand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
     if (defuseIdx !== -1) {
       const newHand = hand.filter((_, i) => i !== defuseIdx);
@@ -1132,7 +1183,7 @@ export async function drawCard(roomId, playerRole) {
         "game/drawPile": drawPile,
         "game/discardPile": [...(game.discardPile || []), drawnCard],
         "game/turn": nextPlayer,
-        "game/attackStack": Math.max(0, attackStack - 1),
+        "game/attackStack": 0,
         "game/phase": "play",
         "game/nopeWindow": null,
         "game/log": [`💥 ${players[playerRole].name} exploded! No defuse!`, ...(game.log || [])].slice(0, 20),
@@ -1158,7 +1209,7 @@ export async function drawCard(roomId, playerRole) {
         "game/drawPile": drawPile,
         "game/discardPile": [...(game.discardPile || []), drawnCard],
         "game/turn": nextPlayer,
-        "game/attackStack": Math.max(0, attackStack - 1),
+        "game/attackStack": 0,
         "game/phase": "play",
         "game/nopeWindow": null,
         "game/log": [`💀 ${players[playerRole].name} drew the face-up Imploding Kitten and imploded!`, ...(game.log || [])].slice(0, 20),
@@ -1266,18 +1317,110 @@ export async function giveFavorCard(roomId, giverRole, cardId) {
   if (cardIdx === -1) return;
   const card = giverHand[cardIdx];
   const newGiverHand = giverHand.filter((_, i) => i !== cardIdx);
-  const receiverHand = [...(players[pending.by].hand || []), card];
-  const logMsg = `${players[giverRole].name} gave ${CARD_META[card.type]?.label ?? card.type} to ${players[pending.by].name}.`;
+  const receiverRole = pending.by;
 
-  // Favor doesn't end the turn — the requester continues their turn
-  // (and still needs to draw a card eventually), same as a Cat Pair steal.
+  // ── Case A: lá cho đi CHÍNH LÀ Exploding Kitten đang giấu → người NHẬN lãnh bom ──
+  if (card.type === CARD_TYPES.EXPLODING_KITTEN) {
+    const receiverHand = [...(players[receiverRole].hand || [])];
+    const receiverDefuseIdx = receiverHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+    const logBase2 = `${players[giverRole].name} gave a card to ${players[receiverRole].name}`;
+
+    if (receiverDefuseIdx !== -1) {
+      const receiverHandAfterDefuse = receiverHand.filter((_, i) => i !== receiverDefuseIdx);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${giverRole}/hand`]: newGiverHand,
+        [`players/${receiverRole}/hand`]: receiverHandAfterDefuse,
+        "game/discardPile": [...(game.discardPile || []), receiverHand[receiverDefuseIdx]],
+        "game/phase": "defuse",
+        "game/pendingAction": { type: "defuse", by: receiverRole, bomb: card },
+        "game/nopeWindow": null,
+        "game/turn": receiverRole,
+        "game/attackStack": game.attackStack || 0,
+        "game/log": [`💣 ${logBase2} — it was an Exploding Kitten! Used Defuse.`, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      const newPlayers = { ...players, [receiverRole]: { ...players[receiverRole], alive: false } };
+      const nextPlayer = getNextLivingPlayer(newPlayers, receiverRole);
+      const aliveRoles = Object.keys(players).filter(r => r !== receiverRole && players[r].alive !== false);
+      const updates = {
+        [`players/${giverRole}/hand`]: newGiverHand,
+        [`players/${receiverRole}/hand`]: [],
+        [`players/${receiverRole}/alive`]: false,
+        "game/discardPile": [...(game.discardPile || []), card],
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/turn": nextPlayer,
+        "game/attackStack": 0,
+        "game/log": [`💥 ${logBase2} — it was an Exploding Kitten! ${players[receiverRole].name} exploded!`, ...(game.log || [])].slice(0, 20),
+      };
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    }
+    return;
+  }
+
+  // ── Case B: lá cho đi là Streaking Kitten, người CHO vẫn đang giấu bom → người CHO lãnh bom ──
+  if (card.type === CARD_TYPES.STREAKING_KITTEN && hasHiddenExplodingKitten(newGiverHand)) {
+    const bombIdx = newGiverHand.findIndex(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
+    const hiddenBomb = newGiverHand[bombIdx];
+    const handWithoutBomb = newGiverHand.filter((_, i) => i !== bombIdx);
+    const giverDefuseIdx = handWithoutBomb.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+    const receiverHand = [...(players[receiverRole].hand || []), card];
+    const logBase2 = `${players[giverRole].name} gave away the Streaking Kitten — the hidden bomb goes off!`;
+
+    if (giverDefuseIdx !== -1) {
+      const finalGiverHand = handWithoutBomb.filter((_, i) => i !== giverDefuseIdx);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${giverRole}/hand`]: finalGiverHand,
+        [`players/${receiverRole}/hand`]: receiverHand,
+        "game/discardPile": [...(game.discardPile || []), handWithoutBomb[giverDefuseIdx]],
+        "game/phase": "defuse",
+        "game/pendingAction": { type: "defuse", by: giverRole, bomb: hiddenBomb },
+        "game/nopeWindow": null,
+        "game/turn": receiverRole,
+        "game/attackStack": game.attackStack || 0,
+        "game/log": [`💣 ${logBase2} Used Defuse.`, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      const newPlayers = { ...players, [giverRole]: { ...players[giverRole], alive: false } };
+      const nextPlayer = getNextLivingPlayer(newPlayers, giverRole);
+      const aliveRoles = Object.keys(players).filter(r => r !== giverRole && players[r].alive !== false);
+      const updates = {
+        [`players/${giverRole}/hand`]: [],
+        [`players/${giverRole}/alive`]: false,
+        [`players/${receiverRole}/hand`]: receiverHand,
+        "game/discardPile": [...(game.discardPile || []), hiddenBomb],
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/turn": nextPlayer,
+        "game/attackStack": 0,
+        "game/log": [`💥 ${logBase2} ${players[giverRole].name} exploded!`, ...(game.log || [])].slice(0, 20),
+      };
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    }
+    return;
+  }
+
+  // ── Trường hợp bình thường (giữ nguyên logic gốc) ──
+  const receiverHand = [...(players[receiverRole].hand || []), card];
+  const logMsg = `${players[giverRole].name} gave ${CARD_META[card.type]?.label ?? card.type} to ${players[receiverRole].name}.`;
+
   await update(ref(db, `rooms/${roomId}`), {
     [`players/${giverRole}/hand`]: newGiverHand,
-    [`players/${pending.by}/hand`]: receiverHand,
+    [`players/${receiverRole}/hand`]: receiverHand,
     "game/phase": "play",
     "game/pendingAction": null,
     "game/nopeWindow": null,
-    "game/turn": pending.by,
+    "game/turn": receiverRole,
     "game/attackStack": game.attackStack || 0,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
   });
@@ -1372,12 +1515,102 @@ export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = n
   const stolenIdx = validIndex ? cardIndex : Math.floor(Math.random() * targetHand.length);
   const stolen = targetHand[stolenIdx];
   const newTargetHand = targetHand.filter((_, i) => i !== stolenIdx);
+
+  // ── Case A: trộm trúng Exploding Kitten đang giấu → THỦ PHẠM lãnh bom ──
+  if (stolen.type === CARD_TYPES.EXPLODING_KITTEN) {
+    const thiefHand = [...(players[thiefRole].hand || [])];
+    const thiefDefuseIdx = thiefHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+    const logBase2 = `${players[thiefRole].name} stole a card from ${players[targetRole].name}`;
+
+    if (thiefDefuseIdx !== -1) {
+      const thiefHandAfterDefuse = thiefHand.filter((_, i) => i !== thiefDefuseIdx);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${targetRole}/hand`]: newTargetHand,
+        [`players/${thiefRole}/hand`]: thiefHandAfterDefuse,
+        "game/discardPile": [...(game.discardPile || []), thiefHand[thiefDefuseIdx]],
+        "game/phase": "defuse",
+        "game/pendingAction": { type: "defuse", by: thiefRole, bomb: stolen },
+        "game/nopeWindow": null,
+        "game/turn": thiefRole,
+        "game/attackStack": game.attackStack || 0,
+        "game/log": [`💣 ${logBase2} — it was an Exploding Kitten! Used Defuse.`, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      const newPlayers = { ...players, [thiefRole]: { ...players[thiefRole], alive: false } };
+      const nextPlayer = getNextLivingPlayer(newPlayers, thiefRole);
+      const aliveRoles = Object.keys(players).filter(r => r !== thiefRole && players[r].alive !== false);
+      const updates = {
+        [`players/${targetRole}/hand`]: newTargetHand,
+        [`players/${thiefRole}/hand`]: [],
+        [`players/${thiefRole}/alive`]: false,
+        "game/discardPile": [...(game.discardPile || []), stolen],
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/turn": nextPlayer,
+        "game/attackStack": 0,
+        "game/log": [`💥 ${logBase2} — it was an Exploding Kitten! ${players[thiefRole].name} exploded!`, ...(game.log || [])].slice(0, 20),
+      };
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    }
+    return;
+  }
+
+  // ── Case B: trộm trúng Streaking Kitten, MỤC TIÊU vẫn đang giấu bom → MỤC TIÊU lãnh bom ──
+  if (stolen.type === CARD_TYPES.STREAKING_KITTEN && hasHiddenExplodingKitten(newTargetHand)) {
+    const bombIdx = newTargetHand.findIndex(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
+    const hiddenBomb = newTargetHand[bombIdx];
+    const handWithoutBomb = newTargetHand.filter((_, i) => i !== bombIdx);
+    const targetDefuseIdx = handWithoutBomb.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+    const thiefHand = [...(players[thiefRole].hand || []), stolen];
+    const logBase2 = `${players[targetRole].name}'s Streaking Kitten was stolen — the hidden bomb goes off!`;
+
+    if (targetDefuseIdx !== -1) {
+      const finalTargetHand = handWithoutBomb.filter((_, i) => i !== targetDefuseIdx);
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${targetRole}/hand`]: finalTargetHand,
+        [`players/${thiefRole}/hand`]: thiefHand,
+        "game/discardPile": [...(game.discardPile || []), handWithoutBomb[targetDefuseIdx]],
+        "game/phase": "defuse",
+        "game/pendingAction": { type: "defuse", by: targetRole, bomb: hiddenBomb },
+        "game/nopeWindow": null,
+        "game/turn": thiefRole,
+        "game/attackStack": game.attackStack || 0,
+        "game/log": [`💣 ${logBase2} Used Defuse.`, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      const newPlayers = { ...players, [targetRole]: { ...players[targetRole], alive: false } };
+      const nextPlayer = getNextLivingPlayer(newPlayers, targetRole);
+      const aliveRoles = Object.keys(players).filter(r => r !== targetRole && players[r].alive !== false);
+      const updates = {
+        [`players/${targetRole}/hand`]: [],
+        [`players/${targetRole}/alive`]: false,
+        [`players/${thiefRole}/hand`]: thiefHand,
+        "game/discardPile": [...(game.discardPile || []), hiddenBomb],
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/turn": thiefRole,
+        "game/attackStack": game.attackStack || 0,
+        "game/log": [`💥 ${logBase2} ${players[targetRole].name} exploded!`, ...(game.log || [])].slice(0, 20),
+      };
+      if (aliveRoles.length <= 1) {
+        updates["game/winner"] = aliveRoles[0] || null;
+        updates["status"] = "finished";
+      }
+      await update(ref(db, `rooms/${roomId}`), updates);
+    }
+    return;
+  }
+
+  // ── Trường hợp bình thường (giữ nguyên logic gốc) ──
   const thiefHand = [...(players[thiefRole].hand || []), stolen];
   const logMsg = `${players[thiefRole].name} stole a card from ${players[targetRole].name}! Still must draw.`;
 
-  // Playing a cat pair does NOT end the turn — only drawing does.
-  // Keep the turn on the thief (and the attack stack unchanged) so the player
-  // is still required to draw a card afterward.
   await update(ref(db, `rooms/${roomId}`), {
     [`players/${thiefRole}/hand`]: thiefHand,
     [`players/${targetRole}/hand`]: newTargetHand,

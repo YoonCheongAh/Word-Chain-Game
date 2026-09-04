@@ -167,6 +167,10 @@ export default function ExplodingKitten() {
       setSelectedCards([]);
       return;
     }
+    if (card.type === CARD_TYPES.STREAKING_KITTEN) {
+      showToast('Streaking Kitten không thể chơi ra — nó chỉ có tác dụng khi nằm trong tay bạn!');
+      return;
+    }
     if (!myTurn) { showToast('Not your turn!'); return; }
     if (phase !== 'play') { showToast('Finish the current action first!'); return; }
 
