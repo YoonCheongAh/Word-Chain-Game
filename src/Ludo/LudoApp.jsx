@@ -107,9 +107,11 @@ const STYLES = `
   /* ── ROOM ── */
   .ludo-room-code-wrap { text-align:center; padding:10px 0 4px; }
   .ludo-room-code {
-    font-family:'JetBrains Mono',monospace; font-size:42px; font-weight:700; letter-spacing:10px;
-    background:var(--grad-1); -webkit-background-clip:text; background-clip:text; color:transparent;
-    cursor:pointer; transition:opacity .15s; display:inline-block;
+    font-family: 'DM Mono', monospace; font-size: 44px; font-weight: 500;
+    letter-spacing: 10px; text-align: center; padding: 18px 0 4px;
+    background: linear-gradient(120deg, #1D9E75, #378ADD);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    transition: transform .15s;
   }
   .ludo-room-code:hover { opacity:.75; }
   .ludo-room-hint { text-align:center; font-size:11px; color:var(--c-muted); font-family:'JetBrains Mono',monospace; margin-bottom:14px; }
@@ -282,14 +284,11 @@ export default function LudoApp() {
     const [boardW, setBoardW] = useState(400);
     const [boardImgOk, setBoardImgOk] = useState(true);
     const [mute, setMute] = useState(false);
-    const [animPos, setAnimPos] = useState({}); // key -> intermediate board position during walk
 
     const boardWrapRef = useRef(null);
     const prevTurnRef = useRef(null);
     const prevCompleteRef = useRef(0);
     const prevRoundOver = useRef(false);
-    const prevPosRef = useRef({});   // key -> last known board position
-    const walkTimers = useRef({});   // key -> interval id
 
     /* shortcuts */
     const ludo = roomData?.ludo;
@@ -399,69 +398,20 @@ export default function LudoApp() {
         playSound("win");
     }, [ludo?.roundOver]);
 
-    /* ─── Step-by-step pawn walk animation ────────────────────
-     * When a pawn's board position changes, we walk it cell-by-cell
-     * along its colour PATH so it visibly hops each square instead of
-     * teleporting. Captures / send-home (backwards jumps) snap instantly. */
-    useEffect(() => {
-        if (!ludo?.playerData) return;
-        const STEP_MS = 130;
-
-        Object.entries(ludo.playerData).forEach(([role, pd]) => {
-            const color = pd.color;
-            const pathArr = PATH[color] || [];
-            pd.pawns.forEach(pawn => {
-                const key = `${role}-${pawn.id}`;
-                const prev = prevPosRef.current[key];
-                const next = pawn.position;
-                if (prev === next || prev === undefined) {
-                    prevPosRef.current[key] = next;
-                    return;
-                }
-
-                const fromIdx = pathArr.indexOf(prev);
-                const toIdx = pathArr.indexOf(next);
-                prevPosRef.current[key] = next;
-
-                // only animate forward moves along the main path
-                if (fromIdx === -1 || toIdx === -1 || toIdx <= fromIdx || toIdx - fromIdx > 12) {
-                    return; // snap (entering board, capture reset, home, etc.)
-                }
-
-                clearInterval(walkTimers.current[key]);
-                let cur = fromIdx;
-                playSound("step");
-                walkTimers.current[key] = setInterval(() => {
-                    cur += 1;
-                    if (cur >= toIdx) {
-                        clearInterval(walkTimers.current[key]);
-                        delete walkTimers.current[key];
-                        setAnimPos(prevA => {
-                            const n = { ...prevA };
-                            delete n[key];
-                            return n;
-                        });
-                        return;
-                    }
-                    setAnimPos(prevA => ({ ...prevA, [key]: pathArr[cur] }));
-                    playSound("step");
-                }, STEP_MS);
-            });
-        });
-    }, [ludo?.playerData]);
-
-    /* Cleanup walk timers on unmount */
-    useEffect(() => () => {
-        Object.values(walkTimers.current).forEach(clearInterval);
-    }, []);
-
     /* ─── Position → pixel ─────────────────────────────────────
-     * FIX: the board is a 15×15 grid (600px base → 40px per cell).
-     * Each pawn must sit at the CENTER of its grid cell. The old code
-     * used magic offsets (+2 on X, -15 on Y) which shifted every pawn
-     * up-and-right, causing the deviation seen across all teams.
-     * Correct center = col*cell + cell/2 (then minus half the pawn size). */
-    function getPawnPixel(position, offset = 0) {
+     * Board is a 15×15 grid (600px base → 40px per cell).
+     * Each pawn sits at the CENTER of its grid cell.
+     * Correct center = col*cell + cell/2 (then minus half the pawn size).
+     *
+     * FIX: `stackIndex` must only be nonzero when multiple pawns truly
+     * share a square. The caller used to pass each pawn's fixed array
+     * index (0-3) as the offset, so pawn #2/#3/#4 of every color was
+     * permanently nudged off-center even standing completely alone on
+     * the track. Grouping pawns by position before rendering (see
+     * render section below) and passing a real "how many pawns are on
+     * this square, and which one am I" index fixes the visual drift
+     * for all 4 colors. */
+    function getPawnPixel(position, stackIndex = 0) {
         const pt = POINTS[position];
         if (!pt) return { left: 0, top: 0 };
 
@@ -480,10 +430,12 @@ export default function LudoApp() {
         const pawnH = pawnW * 1.15;
 
         // when multiple pawns share a cell, fan them out symmetrically
-        // around the cell center so none of them drift off the square
+        // around the cell center so none of them drift off the square.
+        // stackIndex is 0 whenever the pawn is alone on its square, so
+        // spreadX/spreadY correctly stay 0 in that case.
         const fan = pawnSz * 0.2;
-        const spreadX = offset === 0 ? 0 : (offset % 2 === 0 ? -fan : fan);
-        const spreadY = offset === 0 ? 0 : (offset < 2 ? -fan : fan);
+        const spreadX = stackIndex === 0 ? 0 : (stackIndex % 2 === 0 ? -fan : fan);
+        const spreadY = stackIndex === 0 ? 0 : (stackIndex < 2 ? -fan : fan);
 
         // center the pawn box exactly on the cell center (both axes)
         const left = cellCenterX - pawnSz / 2 + spreadX;
@@ -526,7 +478,6 @@ export default function LudoApp() {
         }
 
         await movePawn(roomId, myRole, move);
-        if (move.captureId) setNotice({ text: "🎯 Bắt được quân đối thủ!", type: "success" });
     }
 
     /* ─── Lobby actions ─────────────────────────────────────── */
@@ -777,17 +728,32 @@ export default function LudoApp() {
     const curColor = ludo.colorMap?.[currentTurn];
     const curName = players?.[currentTurn]?.name ?? currentTurn;
 
+    /* Build render list, then group by DISPLAYED board position so that
+     * stacking offsets only apply to squares that truly hold >1 pawn.
+     * (Fix for the "pawns look off-center" bug — see getPawnPixel above.) */
     const allPawns = [];
     if (ludo.playerData) {
         Object.entries(ludo.playerData).forEach(([role, pd]) => {
-            pd.pawns.forEach((pawn, idx) => {
+            pd.pawns.forEach((pawn) => {
                 if (pawn.complete) return;
                 const canMove = isMyTurn && phase === "move" && role === myRole
                     && availableMoves.some(m => m.pawnId === pawn.id);
-                allPawns.push({ role, pd, pawn, idx, canMove });
+                const key = `${role}-${pawn.id}`;
+                allPawns.push({ role, pd, pawn, canMove, key, displayPos: pawn.position });
             });
         });
     }
+
+    // group by displayed position to compute real stack sizes/indices
+    const posGroups = {};
+    allPawns.forEach(p => {
+        (posGroups[p.displayPos] ||= []).push(p);
+    });
+    Object.values(posGroups).forEach(group => {
+        group.forEach((p, i) => {
+            p.stackIndex = group.length > 1 ? i : 0;
+        });
+    });
 
     return (
         <div className="ludo-app">
@@ -839,13 +805,13 @@ export default function LudoApp() {
                         </div>
                     }
                     <div className="ludo-pawns-layer">
-                        {allPawns.map(({ role, pd, pawn, idx, canMove }) => {
-                            const pos = getPawnPixel(pawn.position, idx);
+                        {allPawns.map(({ role, pd, pawn, canMove, key, displayPos, stackIndex }) => {
+                            const pos = getPawnPixel(displayPos, stackIndex);
                             return (
                                 <img
-                                    key={`${role}-${pawn.id}`}
+                                    key={key}
                                     className={`ludo-pawn${canMove ? " movable" : ""}`}
-                                    src={ASSETS.pawns[pd.color]}
+                                    src={ASSETS.pawns[pd.color]}                                    
                                     alt={`${pd.color}${pawn.id}`}
                                     style={{
                                         left: pos.left,

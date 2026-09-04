@@ -59,7 +59,14 @@ export const PATH = {
 };
 
 // Star/safe squares where pawns cannot be captured
-export const SAFE_SQUARES = new Set([0, 8, 13, 21, 26, 34, 39, 47, 52]);
+// The common loop here has 56 squares (14 per side), with entry points for
+// r/g/y/b at 0/14/28/42 (see PATH below). Each entry square is safe, plus the
+// traditional "star" square 8 steps after each entry. The previous set
+// ([0, 8, 13, 21, 26, 34, 39, 47, 52]) was copied from a classic 52-square
+// board and only lined up correctly for red — every other color's entry
+// square (14, 28, 42) was missing, so pawns from g/y/b could be captured the
+// instant they left the yard.
+export const SAFE_SQUARES = new Set([0, 8, 14, 22, 28, 36, 42, 50]);
 
 // ─── PURE GAME LOGIC ─────────────────────────────────────────────────────────
 
