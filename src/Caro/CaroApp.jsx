@@ -143,15 +143,19 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 .score-wins{font-family:'Space Mono',monospace;font-size:12px;font-weight:600;}
 
 .notice{text-align:center;font-family:'Space Mono',monospace;font-size:13px;
-  padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:12px;}
+  padding:10px 14px;border-radius:var(--radius-sm);}
 .notice-win{background:var(--green-dim);color:var(--green);border:1px solid #1e5c30;}
 .notice-lose{background:var(--red-dim);color:var(--red);border:1px solid #5a1a1a;}
 .notice-draw{background:var(--gold-dim);color:var(--gold);border:1px solid #5a4500;}
 
+/* Slot giữ chiều cao cố định cho các thông báo / xin đi lại
+   → bàn cờ bên dưới không bị đẩy lên/xuống khi chúng hiện ẩn */
+.caro-status-slot{min-height:46px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;}
+
 /* ── Undo bar ── */
 .undo-bar{display:flex;align-items:center;justify-content:space-between;
   background:var(--gold-dim);border:1px solid var(--gold);border-radius:var(--radius-sm);
-  padding:10px 14px;margin-bottom:12px;gap:10px;
+  padding:8px 14px;gap:10px;width:100%;
   animation:undoPop .2s cubic-bezier(.2,.8,.3,1) both;}
 @keyframes undoPop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 .undo-bar-text{font-family:'Space Mono',monospace;font-size:12px;color:var(--gold);flex:1;}
@@ -166,10 +170,10 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
 
 .undo-waiting{text-align:center;font-family:'Space Mono',monospace;font-size:12px;
   color:var(--gold);padding:8px 14px;border-radius:var(--radius-sm);
-  background:var(--gold-dim);border:1px solid rgba(240,192,64,.3);margin-bottom:12px;}
+  background:var(--gold-dim);border:1px solid rgba(240,192,64,.3);max-width:100%;}
 
 .c-btn-undo{background:transparent;color:var(--dim);border:1px solid var(--border);
-  font-size:12px;padding:9px 16px;margin-bottom:10px;}
+  font-size:12px;padding:8px 16px;}
 .c-btn-undo:hover:not(:disabled){background:var(--surface);color:var(--text);border-color:var(--gold);}
 
 /* ── Board ── */
@@ -794,33 +798,36 @@ export default function CaroApp() {
                 <div className="move-count">{caro.moveCount ?? 0} nước</div>
             </div>
 
-            {/* Game notices */}
-            {notice && <div className={`notice notice-${notice.type}`}>{notice.text}</div>}
+            {/* Status slot: luôn giữ chiều cao cố định để bàn cờ không bị giật lên/xuống
+                khi các thông báo / xin đi lại hiện ẩn */}
+            <div className="caro-status-slot">
+                {notice && <div className={`notice notice-${notice.type}`}>{notice.text}</div>}
 
-            {/* Đối thủ xin đi lại → mình phán xét */}
-            {opponentRequesting && (
-                <div className="undo-bar">
-                    <span className="undo-bar-text">
-                        ↩ {players?.[undoRequest]?.name} xin đi lại nước vừa rồi
-                    </span>
-                    <div className="undo-btns">
-                        <button className="undo-btn undo-btn-yes" onClick={() => handleRespondUndo(true)}>Đồng ý</button>
-                        <button className="undo-btn undo-btn-no"  onClick={() => handleRespondUndo(false)}>Từ chối</button>
+                {/* Đối thủ xin đi lại → mình phán xét */}
+                {opponentRequesting && (
+                    <div className="undo-bar">
+                        <span className="undo-bar-text">
+                            ↩ {players?.[undoRequest]?.name} xin đi lại nước vừa rồi
+                        </span>
+                        <div className="undo-btns">
+                            <button className="undo-btn undo-btn-yes" onClick={() => handleRespondUndo(true)}>Đồng ý</button>
+                            <button className="undo-btn undo-btn-no"  onClick={() => handleRespondUndo(false)}>Từ chối</button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Mình đang chờ đối thủ phản hồi */}
-            {iAmRequesting && (
-                <div className="undo-waiting pulse">↩ Đang chờ đối thủ chấp nhận đi lại...</div>
-            )}
+                {/* Mình đang chờ đối thủ phản hồi */}
+                {iAmRequesting && (
+                    <div className="undo-waiting pulse">↩ Đang chờ đối thủ chấp nhận đi lại...</div>
+                )}
 
-            {/* Nút xin đi lại */}
-            {canRequestUndo && (
-                <button className="c-btn c-btn-undo" onClick={handleRequestUndo}>
-                    ↩ Xin đi lại
-                </button>
-            )}
+                {/* Nút xin đi lại */}
+                {canRequestUndo && (
+                    <button className="c-btn c-btn-undo" onClick={handleRequestUndo}>
+                        ↩ Xin đi lại
+                    </button>
+                )}
+            </div>
 
             {/* Board 19×19 */}
             <div className="board-wrap">

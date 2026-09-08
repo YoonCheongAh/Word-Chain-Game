@@ -1589,7 +1589,7 @@ function getStyles() {
     }
 
     .ek-root {
-      width: 100vw; height: 100vh;
+      width: 100%; height: calc(100svh - 50px);
       background: var(--ek-bg);
       color: var(--ek-text);
       font-family: 'Nunito', sans-serif;
@@ -1598,7 +1598,7 @@ function getStyles() {
 
     .ek-loading {
       display: flex; align-items: center; justify-content: center;
-      width: 100vw; height: 100vh;
+      width: 100%; height: 100%;
       font-size: 20px; color: var(--ek-ember);
       font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px;
     }

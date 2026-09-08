@@ -580,7 +580,14 @@ const HUB_STYLES = `
     animation: dotBlink 2.2s ease-in-out infinite;
   }
 
-  .gh-game-body { padding-top: 50px; }
+  .gh-game-body {
+    padding-top: 50px;
+    min-height: calc(100svh - 50px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: safe center;
+  }
 
   @media (max-width: 640px) {
     .gh-grid { grid-template-columns: 1fr 1fr; gap: 10px; }

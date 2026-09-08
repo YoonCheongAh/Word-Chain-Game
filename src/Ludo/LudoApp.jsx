@@ -48,9 +48,8 @@ const STYLES = `
       radial-gradient(900px 500px at 85% 10%, rgba(34,197,94,.12), transparent 60%),
       radial-gradient(700px 500px at 50% 110%, rgba(250,204,21,.08), transparent 60%),
       var(--c-bg);
-    min-height:100vh;
+    min-height:calc(100svh - 50px);
   }
-
   /* ── LOBBY ── */
   .ludo-lobby-wrap { padding-top:32px; animation:floatIn .5s ease; }
   @keyframes floatIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }

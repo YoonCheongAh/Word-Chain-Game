@@ -20,7 +20,7 @@ const STYLES = `
     color: #f0ede8;
     min-height: 100vh;
     display: flex;
-    align-items: center;
+    align-items: safe center;
     justify-content: center;
     overflow-x: hidden;
   }
