@@ -65,7 +65,6 @@ export default function ExplodingKitten() {
   const [toast, setToast] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
   const nopeTimerRef = useRef(null);
-  const [tradeMode, setTradeMode] = useState(false);
 
   const game = roomData?.game;
   const players = roomData?.players || {};
@@ -174,37 +173,49 @@ export default function ExplodingKitten() {
     if (!myTurn) { showToast('Not your turn!'); return; }
     if (phase !== 'play') { showToast('Finish the current action first!'); return; }
 
-    if (tradeMode && CAT_CARD_TYPES.has(card.type)) {
+    if (CAT_CARD_TYPES.has(card.type)) {
       setSelectedCards(prev => {
+        // toggle off if already selected
         if (prev.some(c => c.id === card.id)) return prev.filter(c => c.id !== card.id);
-        if (prev.length >= 5) return prev;
+        const sameType = prev.find(c => c.type === card.type);
+        if (sameType) {
+          // pair: only allow a 2nd of the same type when starting fresh
+          if (prev.length === 1) {
+            return [...prev, card];
+          }
+          showToast(`Can't add a 3rd ${CARD_META[card.type]?.label} — trade needs 5 different cats`);
+          return prev;
+        }
+        if (prev.length >= 5) {
+          showToast('Already selected 5 different cats');
+          return prev;
+        }
         return [...prev, card];
       });
       return;
     }
 
-    if (CAT_CARD_TYPES.has(card.type)) {
-      setSelectedCards(prev => {
-        const alreadySelected = prev[0];
-        if (alreadySelected?.id === card.id) return [];
-        if (alreadySelected?.type === card.type) {
-          playCard(roomId, myRole, alreadySelected.id, { isPair: true });
-          return [];
-        }
-        showToast(`Select another ${CARD_META[card.type]?.label} to play as pair`);
-        return [card];
-      });
-      return;
-    }
-
-    setSelectedCards(prev => prev[0]?.id === card.id ? [] : [card]);
-  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast, tradeMode]);
+    // Action card: click once to select (hover glow), click again to play
+    setSelectedCards(prev => {
+      if (prev.some(c => c.id === card.id)) {
+        // second click on selected card → play it
+        playCard(roomId, myRole, card.id, {});
+        return [];
+      }
+      return [card];
+    });
+  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast]);
 
   const handlePlaySelected = useCallback(() => {
     const card = selectedCards[0];
     if (!card) return;
     if (CAT_CARD_TYPES.has(card.type)) {
-      showToast(`Select another ${CARD_META[card.type]?.label} to play as pair!`);
+      if (selectedCards.length === 2 && selectedCards[0].type === selectedCards[1].type) {
+        playCard(roomId, myRole, card.id, { isPair: true });
+        setSelectedCards([]);
+        return;
+      }
+      showToast(`Select 5 different cats to Trade for a Defuse, or 2 same-type cats to play as pair!`);
       return;
     }
     playCard(roomId, myRole, card.id, {});
@@ -259,8 +270,6 @@ export default function ExplodingKitten() {
         onPlaceBomb={handlePlaceBomb}
         onGiveCard={handleGiveCard}
         onStealCard={handleStealCard}
-        tradeMode={tradeMode}
-        setTradeMode={setTradeMode}
         onChooseFavorTarget={handleChooseFavorTarget}
         onSelectFavorTarget={handleSelectFavorTarget}
         onPlaceImploding={handlePlaceImploding}
@@ -518,7 +527,7 @@ const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, card
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
-  selectedCards, setSelectedCards, tradeMode, setTradeMode, onCardClick, onPlaySelected, onDrawCard,
+  selectedCards, setSelectedCards, onCardClick, onPlaySelected, onDrawCard,
   onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
   onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId,
 }) {
@@ -673,22 +682,7 @@ function GameBoardScreen({
   }, [nopeWindow?.isCurrentlyNoped]);
 
   const [drawAnim, setDrawAnim] = useState(0);
-  const [handKey, setHandKey] = useState(0);
   const [handOrder, setHandOrder] = useState(null);
-
-  const handleShuffleHand = useCallback(() => {
-    setHandOrder(prev => {
-      const currentHand = prev || myHand;
-      const shuffled = [...currentHand];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return shuffled;
-    });
-    setHandKey(k => k + 1);
-    SoundManager.play('shuffle');
-  }, [myHand]);
 
   const prevDrawCountRef = useRef(drawPile.length);
   const drawTimerRef = useRef(null);
@@ -755,7 +749,13 @@ function GameBoardScreen({
     }
 
     const isCat = CAT_CARD_TYPES.has(topDiscard.type);
-    const isActionCard = !isCat && topDiscard.type !== CARD_TYPES.EXPLODING_KITTEN && topDiscard.type !== CARD_TYPES.IMPLODING_KITTEN;
+    const noPlayFx = new Set([
+      CARD_TYPES.EXPLODING_KITTEN,
+      CARD_TYPES.IMPLODING_KITTEN,
+      CARD_TYPES.DEFUSE,
+      CARD_TYPES.STREAKING_KITTEN,
+    ]);
+    const isActionCard = !isCat && !noPlayFx.has(topDiscard.type);
     if (!isActionCard) return;
     setCardFx({ key: topDiscard.id, type: topDiscard.type });
     if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
@@ -767,6 +767,64 @@ function GameBoardScreen({
   const posMap = OPP_POSITIONS[otherRoles.length] || ['north'];
 
   const displayHand = handOrder ?? myHand;
+
+  // ── Drag-to-reorder hand ──
+  const [dragFromIdx, setDragFromIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+
+  const handleDragStart = useCallback((idx) => {
+    setDragFromIdx(idx);
+  }, []);
+
+  const handleDragOverCard = useCallback((e, idx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragOverIdx !== idx) setDragOverIdx(idx);
+  }, [dragOverIdx]);
+
+  const handleDropCard = useCallback((idx) => {
+    setDragOverIdx(null);
+    if (dragFromIdx === null || dragFromIdx === idx) { setDragFromIdx(null); return; }
+    setHandOrder(prev => {
+      const current = prev || myHand;
+      const next = [...current];
+      const [moved] = next.splice(dragFromIdx, 1);
+      next.splice(idx, 0, moved);
+      return next;
+    });
+    setDragFromIdx(null);
+    SoundManager.play('shuffle');
+  }, [dragFromIdx, myHand]);
+
+  const handleDragEndCard = useCallback(() => {
+    setDragFromIdx(null);
+    setDragOverIdx(null);
+  }, []);
+
+  // ── Auto-play cat pair: selecting exactly 2 matching cats plays them ──
+  useEffect(() => {
+    if (!myTurn || phase !== 'play') return;
+    if (selectedCards.length !== 2) return;
+    const [a, b] = selectedCards;
+    if (!a || !b || a.type !== b.type) return;
+    const currentIds = new Set(myHand.map(c => c.id));
+    if (!currentIds.has(a.id) || !currentIds.has(b.id)) return;
+    onPlaySelected();
+  }, [selectedCards, myTurn, phase, onPlaySelected]);
+
+  // ── Auto-trade: selecting exactly 5 DIFFERENT cat cards trades for a Defuse ──
+  useEffect(() => {
+    if (!myTurn || phase !== 'play') return;
+    if (selectedCards.length !== 5) return;
+    if (!selectedCards.every(c => CAT_CARD_TYPES.has(c.type))) return;
+    const uniqueTypes = new Set(selectedCards.map(c => c.type));
+    if (uniqueTypes.size !== 5) return; // phải là 5 loại mèo khác nhau
+    const currentIds = new Set(myHand.map(c => c.id));
+    if (!selectedCards.every(c => currentIds.has(c.id))) return;
+    onTradeCatsForDefuse(selectedCards.map(c => c.id));
+    setSelectedCards([]);
+    SoundManager.play('shuffle');
+  }, [selectedCards, myTurn, phase, onTradeCatsForDefuse, setSelectedCards]);
 
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
@@ -930,75 +988,40 @@ function GameBoardScreen({
           </div>
 
           <div className="ek-hand-and-actions">
-            <button
-              className="ek-shuffle-hand-btn"
-              onClick={handleShuffleHand}
-              title="Shuffle your hand"
-            >
-              <span className="ek-shuffle-hand-icon">🔀</span>
-              <span className="ek-shuffle-hand-label">Shuffle</span>
-            </button>
             <div className="ek-hand-fan">
               {displayHand.length > 0 ? displayHand.map((card, idx) => {
                 const isSelected = selectedCards.some(s => s.id === card.id);
                 const meta = CARD_META[card.type];
                 const isNopeable = card.type === CARD_TYPES.NOPE && nopeWindow?.open;
                 const isNew = newCardIds.has(card.id);
-                // Only show "needs a pair" styling outside trade mode —
-                // in trade mode, selecting multiple cat cards is intentional.
-                const isAwaitingPair = isSelected && !tradeMode && CAT_CARD_TYPES.has(card.type);
                 return (
                   <HandCard
                     key={card.id}
                     card={card}
                     meta={meta}
                     isSelected={isSelected}
-                    isAwaitingPair={isAwaitingPair}
                     isNopeable={isNopeable}
                     isNew={isNew}
                     isDisabled={!myTurn && !isNopeable}
                     zIndex={isSelected ? 50 : idx}
                     onClick={onCardClick}
+                    isActionCardSelected={isSelected && !CAT_CARD_TYPES.has(card.type)}
+                    draggable={myTurn && phase === 'play'}
+                    dragOver={dragOverIdx === idx}
+                    onDragStart={() => handleDragStart(idx)}
+                    onDragOverCard={(e) => handleDragOverCard(e, idx)}
+                    onDropCard={() => handleDropCard(idx)}
+                    onDragEnd={() => handleDragEndCard()}
                   />
                 );
               }) : (
                 <div className="ek-hand-empty">No cards in hand</div>
               )}
             </div>
-
-            {myTurn && phase === 'play' && (
-              <div className="ek-action-strip">
-                {selectedCards.length > 0 && !tradeMode && !CAT_CARD_TYPES.has(selectedCards[0]?.type) && (
-                  <button className="ek-action-btn ek-action-play" onClick={onPlaySelected}>
-                    ▶ Play {CARD_META[selectedCards[0]?.type]?.label || 'Card'}
-                  </button>
-                )}
-                <button className="ek-action-btn ek-action-draw" onClick={onDrawCard}>Draw Card</button>
-                <button
-                  className="ek-action-btn ek-action-draw"
-                  onClick={() => {
-                    setTradeMode(t => !t);
-                    setSelectedCards([]);
-                  }}
-                >
-                  {tradeMode ? `Cancel (${selectedCards.length}/5)` : 'Trade defuse'}
-                </button>
-
-                {tradeMode && selectedCards.length === 5 && (
-                  <button
-                    className="ek-action-btn ek-action-play"
-                    onClick={() => {
-                      onTradeCatsForDefuse(selectedCards.map(c => c.id));
-                      setSelectedCards([]);
-                      setTradeMode(false);
-                    }}
-                  >
-                    Confirm
-                  </button>
-                )}
-              </div>
-            )}
           </div>
+          {myTurn && phase === 'play' && selectedCards.length > 0 && (
+            <SelectionHint selectedCards={selectedCards} />
+          )}
         </div>
       </div>
 
@@ -1069,13 +1092,18 @@ function GameBoardScreen({
 }
 
 /* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
-const HandCard = memo(function HandCard({ card, meta, isSelected, isAwaitingPair, isNopeable, isNew, isDisabled, zIndex, onClick }) {
+const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
   const handleClick = useCallback(() => onClick(card), [onClick, card]);
   return (
     <div
-      className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isAwaitingPair ? ' ek-hand-card-pairing' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}`}
+      className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}${draggable ? ' ek-hand-card-draggable' : ''}${dragOver ? ' ek-hand-card-drop-target' : ''}`}
       style={{ '--card-color': meta?.color || '#888', zIndex }}
+      draggable={draggable || undefined}
       onClick={handleClick}
+      onDragStart={onDragStart}
+      onDragOver={onDragOverCard}
+      onDrop={onDropCard}
+      onDragEnd={onDragEnd}
     >
       <div className="ek-card-face ek-card-face-back">
         <img src="/Resources/exploding kitten/backcard.webp" alt="card back" className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
@@ -1084,11 +1112,40 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isAwaitingPair
         <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
         <div className="ek-card-label-bar">{meta?.label || card.type}</div>
       </div>
-      {isSelected && (
-        <div className="ek-card-selected-badge">{isAwaitingPair ? '🔗' : '✓'}</div>
+      {isSelected && !isActionCardSelected && (
+        <div className="ek-card-selected-badge">✓</div>
       )}
-      {isAwaitingPair && <div className="ek-card-pair-hint">Chọn lá giống để ghép cặp</div>}
+      {isActionCardSelected && (
+        <div className="ek-play-hint">▶ click to play</div>
+      )}
       {isNopeable && <div className="ek-nope-glow" />}
+    </div>
+  );
+});
+
+/* ─── SELECTION HINT ─────────────────────────────────────────────────── */
+const SelectionHint = memo(function SelectionHint({ selectedCards }) {
+  const allCats = selectedCards.every(c => CAT_CARD_TYPES.has(c.type));
+  const isPair = selectedCards.length === 2 && selectedCards[0].type === selectedCards[1].type;
+
+  let text;
+  if (!allCats && selectedCards.length === 1) {
+    text = `▶ ${CARD_META[selectedCards[0].type]?.label} selected — click again to Play`;
+  } else if (allCats) {
+    if (selectedCards.length === 5) {
+      text = '🐱 Trading 5 different cats for a Defuse…';
+    } else if (isPair) {
+      text = '🐱 Cat pair ready to play!';
+    } else if (selectedCards.length === 2) {
+      text = '🃏 Same-type pair plays, or keep adding different cats to reach 5';
+    } else {
+      text = `🐱 ${selectedCards.length}/5 different cats — keep selecting to Trade for Defuse`;
+    }
+  }
+
+  return (
+    <div className={`ek-selection-hint${allCats && selectedCards.length === 5 ? ' ek-selection-hint-trade' : ''}`}>
+      {text}
     </div>
   );
 });
@@ -1911,7 +1968,7 @@ function getStyles() {
       border-color: var(--card-color, var(--ek-fire)) !important;
       box-shadow:
         0 0 0 2px var(--card-color, var(--ek-fire)),
-        0 0 26px color-mix(in srgb, var(--card-color, var(--ek-fire)) 60%, transparent),
+        0 0 26px var(--card-color, var(--ek-fire)),
         0 20px 44px rgba(0,0,0,0.55) !important;
     }
     .ek-hand-card-selected:not(.ek-hand-card-new)::after {
@@ -1943,31 +2000,45 @@ function getStyles() {
       to   { transform: scale(1) rotate(0deg);   opacity: 1; }
     }
 
-    /* ── "Pick a matching card" hint for cat-card pairing ── */
-    .ek-card-pair-hint {
-      position: absolute; top: -34px; left: 50%; transform: translateX(-50%);
-      background: rgba(20,12,4,0.95); border: 1px solid var(--card-color, var(--ek-gold));
-      color: var(--ek-text); font-family: 'DM Mono', monospace; font-size: 9px;
-      letter-spacing: .5px; white-space: nowrap; padding: 4px 10px; border-radius: 8px;
-      z-index: 20; pointer-events: none; animation: pairHintIn .25s ease;
+    /* ── "Click to play" hint on a selected action card ── */
+    .ek-play-hint {
+      position: absolute; top: -32px; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(135deg, #c02800, var(--ek-fire));
+      color: #fff; font-family: 'Nunito', sans-serif; font-size: 10px; font-weight: 900;
+      letter-spacing: .5px; white-space: nowrap; padding: 5px 12px; border-radius: 14px;
+      z-index: 30; pointer-events: none;
+      box-shadow: 0 4px 16px rgba(255,90,31,0.6), 0 0 0 2px rgba(255,90,31,0.3);
+      animation: playHintIn .25s cubic-bezier(.34,1.56,.64,1), playHintPulse 1.1s ease-in-out infinite;
     }
-    @keyframes pairHintIn {
-      from { opacity: 0; transform: translate(-50%, 6px); }
-      to   { opacity: 1; transform: translate(-50%, 0); }
+    @keyframes playHintIn {
+      from { opacity: 0; transform: translate(-50%, 8px) scale(.8); }
+      to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    }
+    @keyframes playHintPulse {
+      0%, 100% { box-shadow: 0 4px 16px rgba(255,90,31,0.6), 0 0 0 2px rgba(255,90,31,0.3); }
+      50%      { box-shadow: 0 4px 22px rgba(255,90,31,0.9), 0 0 0 3px rgba(255,90,31,0.6); }
     }
 
-    /* ── Cat card selected and waiting for its pair: distinct dashed gold ring ── */
-    .ek-hand-card-pairing:not(.ek-hand-card-new) {
-      border-color: var(--ek-gold) !important;
-      border-style: dashed !important;
-      box-shadow:
-        0 0 0 2px var(--ek-gold),
-        0 0 26px rgba(255,208,96,0.55),
-        0 20px 44px rgba(0,0,0,0.55) !important;
+    /* ── Selected cat cards counter for trade ── */
+    .ek-selection-hint {
+      margin-top: 2px;
+      padding: 6px 16px;
+      border-radius: 18px;
+      background: rgba(255,208,96,0.12);
+      border: 1px solid rgba(255,208,96,0.35);
+      color: var(--ek-gold);
+      font-size: 12px; font-weight: 800; text-align: center;
+      letter-spacing: .3px;
+      animation: hintIn .25s ease;
     }
-    .ek-hand-card-pairing:not(.ek-hand-card-new)::after {
-      border-color: var(--ek-gold);
-      border-style: dashed;
+    .ek-selection-hint-trade {
+      background: rgba(61,214,140,0.15);
+      border-color: rgba(61,214,140,0.5);
+      color: var(--ek-green);
+    }
+    @keyframes hintIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
     .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
@@ -1979,28 +2050,12 @@ function getStyles() {
     .ek-my-cardcount { font-size: 10px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }
     .ek-my-turn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ek-green); box-shadow: 0 0 8px var(--ek-green); animation: oppPulse 1s infinite; }
 
-    .ek-hand-and-actions { display: flex; flex-direction: row; align-items: flex-end; gap: 16px; width: 100%; justify-content: center; overflow-x: auto; padding: 8px 16px; scrollbar-width: none; -ms-overflow-style: none; }
+    .ek-hand-and-actions { display: flex; flex-direction: row; align-items: flex-end; gap: 0; width: 100%; justify-content: center; overflow: visible; padding: 14px 16px 8px; scrollbar-width: none; -ms-overflow-style: none; }
     .ek-hand-and-actions::-webkit-scrollbar { display: none; }
     
     .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 10px; padding: 0; flex: 1; min-height: calc(var(--ek-card-h) + 20px); align-items: flex-end; }
 
-    .ek-action-strip { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-    @media (max-width: 1024px) and (min-width: 641px) {
-      .ek-action-strip { flex-direction: row; gap: 8px; }
-    }
-    @media (max-width: 640px) {
-      .ek-action-strip { flex-direction: column; gap: 8px; }
-    }
     .ek-action-btn { padding: 16px 24px; border: none; border-radius: 12px; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: .6px; white-space: nowrap; }
-    @media (min-width: 1025px) {
-      .ek-action-btn { min-width: 160px; }
-    }
-    @media (max-width: 768px) {
-      .ek-action-btn { min-width: 140px; font-size: 13px; padding: 14px 20px; }
-    }
-    @media (max-width: 480px) {
-      .ek-action-btn { min-width: 100%; font-size: 12px; padding: 12px 18px; }
-    }
     .ek-action-play { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 6px 24px rgba(255,90,31,0.5); }
     .ek-action-play:hover { filter: brightness(1.15); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(255,90,31,0.6); }
     .ek-action-play:active { transform: translateY(0); }
@@ -2262,30 +2317,15 @@ function getStyles() {
       text-shadow: 0 0 8px rgba(176,190,197,0.8);
     }
 
-    /* ── Shuffle hand button ── */
-    .ek-shuffle-hand-btn {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 4px; padding: 10px 8px;
-      background: rgba(255,255,255,0.05);
-      border: 1.5px solid rgba(255,255,255,0.12);
-      border-radius: 14px; cursor: pointer; color: var(--ek-text-muted);
-      font-family: 'Nunito', sans-serif;
-      transition: all .2s; flex-shrink: 0;
-      min-width: 52px; align-self: center;
-    }
-    .ek-shuffle-hand-btn:hover {
-      background: rgba(255,208,96,0.12);
-      border-color: var(--ek-gold);
-      color: var(--ek-gold);
-      transform: scale(1.08);
-      box-shadow: 0 4px 16px rgba(255,208,96,0.25);
-    }
-    .ek-shuffle-hand-btn:active { transform: scale(0.96); }
-    .ek-shuffle-hand-icon { font-size: 22px; display: block; transition: transform .35s; }
-    .ek-shuffle-hand-btn:hover .ek-shuffle-hand-icon { transform: rotate(180deg); }
-    .ek-shuffle-hand-label {
-      font-size: 9px; font-weight: 800; letter-spacing: 1px;
-      text-transform: uppercase; line-height: 1;
+    /* ── Drag-to-reorder hand ── */
+    .ek-hand-card-draggable { cursor: grab; }
+    .ek-hand-card-draggable:active { cursor: grabbing; }
+    .ek-hand-card-drop-target {
+      opacity: 0.55;
+      transform: translateY(-12px) scale(0.94) !important;
+      border-color: var(--ek-purple) !important;
+      box-shadow: 0 0 18px rgba(184,127,255,0.6), 0 0 0 2px rgba(184,127,255,0.5) !important;
+      transition: opacity .15s, transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s;
     }
 
     /* ══ CATOMIC BOMB RADIATION BURST EFFECT ══ */

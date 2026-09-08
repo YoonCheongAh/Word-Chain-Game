@@ -1436,9 +1436,12 @@ export async function tradeFiveCatsForDefuse(roomId, playerRole, cardIds) {
   if (cardIds.length !== 5) return;
 
   const cardsToDiscard = [];
+  const seenTypes = new Set();
   for (const id of cardIds) {
     const c = hand.find(h => h.id === id);
     if (!c || !CAT_CARD_TYPES.has(c.type)) return;
+    if (seenTypes.has(c.type)) return; // 5 lá mèo phải khác loại nhau
+    seenTypes.add(c.type);
     cardsToDiscard.push(c);
   }
 

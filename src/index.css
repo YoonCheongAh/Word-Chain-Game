@@ -55,7 +55,7 @@ html {
   /* Dự trữ chỗ cho thanh cuộn để các màn hình không bị giật
      (dịch chuyển trái/phải hay lên/xuống) khi chiều cao nội dung
      dao động quanh chiều cao viewport trong lúc chơi. */
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: stable;
 }
 
 body {
