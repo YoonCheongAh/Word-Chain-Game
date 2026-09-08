@@ -204,6 +204,7 @@ const STYLES = `
   .ludo-roll-btn:active:not(:disabled) { transform:scale(.97); }
   .ludo-roll-btn:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; background:var(--c-surface2); }
 
+  .ludo-notice-slot { min-height:40px; display:flex; align-items:center; justify-content:center; }
   .ludo-notice { text-align:center; font-family:'JetBrains Mono',monospace; font-size:12px; padding:9px 12px; border-radius:10px; animation:fadeInN .2s ease; }
   @keyframes fadeInN { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
   .ludo-notice-info    { background:var(--c-surface);    color:var(--c-muted);   border:1px solid var(--c-border); }
@@ -940,7 +941,9 @@ export default function LudoApp() {
                 </div>
 
                 {/* Notice */}
-                {notice && <div className={`ludo-notice ludo-notice-${notice.type}`}>{notice.text}</div>}
+                <div className="ludo-notice-slot">
+                    {notice && <div className={`ludo-notice ludo-notice-${notice.type}`}>{notice.text}</div>}
+                </div>
 
                 {/* effect #3: special move banner (six roll / capture / home) */}
                 {specialFx && <div className="ludo-specialfx">{specialFx.text}</div>}
