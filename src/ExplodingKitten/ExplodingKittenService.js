@@ -23,6 +23,7 @@ export const CARD_TYPES = {
   SWAP_TOP_BOTTOM: "swap_top_bottom",
   CATOMIC_BOMB: "catomic_bomb",
   STREAKING_KITTEN: "streaking_kitten",
+  MARK: "mark",
 };
 export const INCLUDE_STREAKING_KITTEN = true;
 export const CAT_CARD_TYPES = new Set([
@@ -47,7 +48,8 @@ export const NOPEABLE_TYPES = new Set([
   CARD_TYPES.BEARD_CAT,
   CARD_TYPES.RAINBOW_CAT,
   CARD_TYPES.DRAW_FROM_BOTTOM,
-  CARD_TYPES.SWAP_TOP_BOTTOM
+  CARD_TYPES.SWAP_TOP_BOTTOM,
+  CARD_TYPES.MARK,
 ]);
 
 export const CARD_META = {
@@ -203,6 +205,13 @@ export const CARD_META = {
     color: "#ff69b4",
     bg: "#3d0c26",
   },
+  [CARD_TYPES.MARK]: {
+    label: "Mark",
+    desc: "Chọn 1 người chơi và lật ngửa 1 lá bài ngẫu nhiên của họ. Lá đó phải giữ ngửa cho đến khi được chơi hoặc bị đánh cắp.",
+    images: ["/Resources/exploding kitten/mark.webp"],
+    color: "#7ffff0",
+    bg: "#063a34",
+  },
 };
 
 export function getCardImage(type) {
@@ -253,6 +262,7 @@ function buildBaseDeck(playerCount) {
   add(CARD_TYPES.DRAW_FROM_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
   add(CARD_TYPES.SWAP_TOP_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
   add(CARD_TYPES.CATOMIC_BOMB, 1);
+  add(CARD_TYPES.MARK, 2); // Mark — always 2 cards in the deck
   // Cat cards — 4 × playerCount spread equally across the 5 types
   // Each type gets floor(total/5); the remainder is distributed to the first types
   const totalCats = 4 * playerCount;
@@ -387,6 +397,15 @@ function buildResolutionUpdates(pending, game) {
         "game/nopeWindow": null,
         "game/nopeChain": [],
       };
+    case "mark":
+      return {
+        "game/phase": "play",
+        "game/pendingAction": null,
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+        "game/turn": pending.resolvedTurn,
+        "game/attackStack": pending.resolvedAttackStack,
+      };
     default:
       return {
         "game/phase": "play",
@@ -398,8 +417,8 @@ function buildResolutionUpdates(pending, game) {
 }
 
 // Updates để khôi phục trạng thái trước đó khi 1 pending action bị Nope.
-function buildNopedRestoreUpdates(pending, game) {
-  return {
+function buildNopedRestoreUpdates(pending, game, players) {
+  const updates = {
     "game/phase": "play",
     "game/pendingAction": null,
     "game/nopeWindow": null,
@@ -407,6 +426,14 @@ function buildNopedRestoreUpdates(pending, game) {
     "game/turn": pending.savedTurn || game.turn,
     "game/attackStack": pending.savedAttackStack ?? game.attackStack,
   };
+  // Mark action bị Nope → bỏ dấu "marked" trên lá bài đã được đánh dấu.
+  if (pending.type === "mark" && pending.target) {
+    const targetHand = [...(players?.[pending.target]?.hand || [])];
+    updates[`players/${pending.target}/hand`] = targetHand.map(c =>
+      c.id === pending.markedCardId && c.marked ? { ...c, marked: false } : c
+    );
+  }
+  return updates;
 }
 
 // ─── Game actions ────────────────────────────────────────────────────────────
@@ -491,7 +518,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
   if (cardIdx === -1) return;
   const card = hand[cardIdx];
   const newHand = hand.filter((_, i) => i !== cardIdx);
-  const discard = [...(game.discardPile || []), card];
+  const discard = [...(game.discardPile || []), { ...card, marked: false }];
   const logBase = `${players[playerRole].name} played ${CARD_META[card.type]?.label ?? card.type}.`;
 
   // ── NOPE: can be played by ANYONE during a nope window ──
@@ -530,7 +557,7 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     } else {
       // Không ai còn Nope → resolve ngay, khỏi chờ
       const resolutionUpdates = isEffective
-        ? buildNopedRestoreUpdates(prev, game)
+        ? buildNopedRestoreUpdates(prev, game, players)
         : buildResolutionUpdates(prev, game);
 
       const logEntries = isEffective
@@ -1098,9 +1125,94 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       });
       break;
     }
+
+    case CARD_TYPES.MARK: {
+      // Step 1: tiêu thụ lá Mark, mở màn hình chọn mục tiêu.
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: newHand,
+        "game/discardPile": discard,
+        "game/phase": "mark_choose_target",
+        "game/nopeChain": [],
+        "game/nopeWindow": null,
+        "game/pendingAction": {
+          type: "mark",
+          by: playerRole,
+          savedAttackStack: game.attackStack || 0,
+          savedTurn: game.turn,
+          nopeWindowPhase: "play",
+        },
+        "game/log": [logBase, ...(game.log || [])].slice(0, 20),
+      });
+      break;
+    }
+
     default:
       return;
   }
+}
+
+// Step 2 of Mark: mục tiêu chọn xong → ngẫu nhiên lật ngửa 1 lá, mở nope window.
+export async function performMark(roomId, byRole, targetRole) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+  const pending = game.pendingAction;
+
+  if (!pending || pending.type !== "mark" || pending.by !== byRole) return;
+  if (game.phase !== "mark_choose_target") return;
+  if (!players[targetRole] || players[targetRole].alive === false) return;
+
+  const targetHand = [...(players[targetRole].hand || [])];
+  if (targetHand.length === 0) return;
+
+  const markedIdx = Math.floor(Math.random() * targetHand.length);
+  const markedCardId = targetHand[markedIdx].id;
+  const targetHandMarked = targetHand.map((c, i) =>
+    i === markedIdx ? { ...c, marked: true } : c
+  );
+
+  const attackStack = game.attackStack || 0;
+  const turnsOwed = Math.max(0, attackStack - 1);
+  const nextPlayer =
+    turnsOwed > 0 ? byRole : getNextLivingPlayer(players, byRole);
+
+  const pendingObj = {
+    type: "mark",
+    by: byRole,
+    target: targetRole,
+    markedIdx,
+    markedCardId,
+    markedCardType: targetHand[markedIdx].type,
+    resolvedTurn: nextPlayer,
+    resolvedAttackStack: turnsOwed,
+    savedAttackStack: game.attackStack || 0,
+    savedTurn: game.turn,
+    nopeWindowPhase: "play",
+  };
+
+  const logMsg = `${players[byRole].name} Marked a card from ${players[targetRole].name}! 🔖`;
+  const canNope = anyPlayerHasNope(players, byRole);
+
+  const updates = {
+    [`players/${targetRole}/hand`]: targetHandMarked,
+    "game/pendingAction": pendingObj,
+    "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+  };
+
+  if (canNope) {
+    updates["game/phase"] = "nope_window";
+    updates["game/nopeChain"] = [];
+    updates["game/nopeWindow"] = {
+      open: true,
+      expiresAt: Date.now() + 5000,
+      pendingType: "mark",
+      isCurrentlyNoped: false,
+    };
+  } else {
+    Object.assign(updates, buildResolutionUpdates(pendingObj, game));
+  }
+
+  await update(ref(db, `rooms/${roomId}`), updates);
 }
 
 // Called when nope window expires (client-side timer calls this)
@@ -1119,7 +1231,7 @@ export async function resolveNopeWindow(roomId) {
   if (isNoped) {
     // Action was noped — restore state before the card was played
     await update(ref(db, `rooms/${roomId}`), {
-      ...buildNopedRestoreUpdates(pending, game),
+      ...buildNopedRestoreUpdates(pending, game, room.players),
       "game/log": ["🚫 Action was Noped!", ...(game.log || [])].slice(0, 20),
     });
     return;
@@ -1411,7 +1523,7 @@ export async function giveFavorCard(roomId, giverRole, cardId) {
   }
 
   // ── Trường hợp bình thường (giữ nguyên logic gốc) ──
-  const receiverHand = [...(players[receiverRole].hand || []), card];
+  const receiverHand = [...(players[receiverRole].hand || []), { ...card, marked: false }];
   const logMsg = `${players[giverRole].name} gave ${CARD_META[card.type]?.label ?? card.type} to ${players[receiverRole].name}.`;
 
   await update(ref(db, `rooms/${roomId}`), {
@@ -1446,7 +1558,7 @@ export async function tradeFiveCatsForDefuse(roomId, playerRole, cardIds) {
   }
 
   const newHand = hand.filter(c => !cardIds.includes(c.id));
-  const discard = [...(game.discardPile || []), ...cardsToDiscard];
+  const discard = [...(game.discardPile || []), ...cardsToDiscard.map(c => ({ ...c, marked: false }))];
   const drawPile = [...(game.drawPile || [])];
   const defuseIdx = drawPile.findIndex(c => c.type === CARD_TYPES.DEFUSE);
 
@@ -1569,7 +1681,7 @@ export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = n
     const hiddenBomb = newTargetHand[bombIdx];
     const handWithoutBomb = newTargetHand.filter((_, i) => i !== bombIdx);
     const targetDefuseIdx = handWithoutBomb.findIndex(c => c.type === CARD_TYPES.DEFUSE);
-    const thiefHand = [...(players[thiefRole].hand || []), stolen];
+    const thiefHand = [...(players[thiefRole].hand || []), { ...stolen, marked: false }];
     const logBase2 = `${players[targetRole].name}'s Streaking Kitten was stolen — the hidden bomb goes off!`;
 
     if (targetDefuseIdx !== -1) {

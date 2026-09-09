@@ -10,7 +10,7 @@ import { SoundManager } from './ExplodingKittenSound';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
-  resolveNopeWindow, reorderAlterTheFuture,
+  resolveNopeWindow, reorderAlterTheFuture, performMark,
   CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse, placeImplodingKitten,
 } from './ExplodingKittenService';
 
@@ -42,6 +42,7 @@ const ACTION_LABEL_MAP = {
   trade_cats: 'Trade 5 Cats for Defuse', draw_from_bottom: 'Draw From Bottom',
   swap_top_bottom: 'Swap Top & Bottom',
   catomic_bomb: 'Catomic Bomb',
+  mark: 'Mark',
 };
 const FX_ICON_MAP = {
   [CARD_TYPES.ATTACK]: '⚔️',
@@ -53,6 +54,7 @@ const FX_ICON_MAP = {
   [CARD_TYPES.DRAW_FROM_BOTTOM]: '⬇️',
   [CARD_TYPES.SWAP_TOP_BOTTOM]: '🔁',
   [CARD_TYPES.DEFUSE]: '🛡️',
+  [CARD_TYPES.MARK]: '🔖',
 };
 
 export default function ExplodingKitten() {
@@ -250,6 +252,10 @@ export default function ExplodingKitten() {
   const handleRematch = useCallback(() => requestRematch(roomId, myRole), [roomId, myRole]);
   const handleTradeCatsForDefuse = useCallback((cardIds) => tradeFiveCatsForDefuse(roomId, myRole, cardIds), [roomId, myRole]);
   const handlePlaceImploding = useCallback((pos) => placeImplodingKitten(roomId, myRole, pos), [roomId, myRole]);
+  const handleMarkTarget = useCallback((targetRole) => {
+    SoundManager.play('mark');
+    performMark(roomId, myRole, targetRole);
+  }, [roomId, myRole]);
 
   if (screen === 'lobby') {
     return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} fieldValue={fieldName} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} isGoogle={isGoogle} />;
@@ -283,6 +289,7 @@ export default function ExplodingKitten() {
         onTradeCatsForDefuse={handleTradeCatsForDefuse}
         onReorderAlterFuture={handleReorderAlterFuture}
         onRematch={handleRematch}
+        onMarkTarget={handleMarkTarget}
         toast={toast}
         showToast={showToast}
         roomId={roomId}
@@ -535,7 +542,7 @@ function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
   selectedCards, setSelectedCards, onCardClick, onPlaySelected, onDrawCard,
   onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
-  onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId,
+  onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId, onMarkTarget,
 }) {
   const gameOver = game?.winner;
   const drawPile = game?.drawPile || [];
@@ -982,7 +989,7 @@ function GameBoardScreen({
         </div>
 
         {/* ── My hand ── */}
-        <div className="ek-my-zone">
+        <div className={`ek-my-zone${myTurn ? ' ek-my-zone-active' : ''}`}>
           <div className="ek-my-info">
             <UserAvatar name={players?.[myRole]?.name} avatar={players?.[myRole]?.avatar} className="ek-my-avatar" fallback="Y" />
             <div className="ek-my-name">{players[myRole]?.name || 'You'}</div>
@@ -1005,6 +1012,7 @@ function GameBoardScreen({
                     key={card.id}
                     card={card}
                     meta={meta}
+                    marked={card.marked === true}
                     isSelected={isSelected}
                     isNopeable={isNopeable}
                     isNew={isNew}
@@ -1062,6 +1070,11 @@ function GameBoardScreen({
           <PairTargetPanel players={players} myRole={myRole} onSteal={onStealCard} />
         </div>
       )}
+      {phase === 'mark_choose_target' && pending?.by === myRole && !fxBusy && (
+        <div className="ek-overlay-panel">
+          <MarkChooseTargetPanel players={players} myRole={myRole} onMark={onMarkTarget} />
+        </div>
+      )}
 
       {phase === 'place_imploding' && pending?.by === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
@@ -1098,7 +1111,7 @@ function GameBoardScreen({
 }
 
 /* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
-const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
+const HandCard = memo(function HandCard({ card, meta, marked, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
   const handleClick = useCallback(() => onClick(card), [onClick, card]);
 
   const cardRef = useRef(null);
@@ -1168,6 +1181,7 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
         <div className="ek-play-hint">▶ click to play</div>
       )}
       {isNopeable && <div className="ek-nope-glow" />}
+      {marked && <div className="ek-marked-badge">🔖 MARKED</div>}
     </div>
   );
 });
@@ -1412,7 +1426,7 @@ const FavorChooseTargetPanel = memo(function FavorChooseTargetPanel({ players, m
 /* ─── FAVOR GIVE PANEL ───────────────────────────────────────────────── */
 const FavorGivePanel = memo(function FavorGivePanel({ myHand, requesterName, onGive }) {
   return (
-    <div className="ek-panel-inner">
+    <div className="ek-panel-inner ek-favor-panel-inner">
       <div className="ek-panel-icon">🎁</div>
       <h3 className="ek-panel-title">{requesterName} wants a card!</h3>
       <p className="ek-panel-sub">Choose one card to give away</p>
@@ -1420,10 +1434,9 @@ const FavorGivePanel = memo(function FavorGivePanel({ myHand, requesterName, onG
         {myHand.map(card => {
           const meta = CARD_META[card.type];
           return (
-            <div key={card.id} className="ek-favor-card" onClick={() => onGive(card.id)}>
-              <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
-              <div className="ek-card-label-bar">{meta?.label || card.type}</div>
-            </div>
+            <button key={card.id} className="ek-favor-card" onClick={() => onGive(card.id)}>
+              <img src={card.image || ''} alt={meta?.label || card.type} className="ek-favor-card-img" onError={e => { e.target.style.display = 'none'; }} />
+            </button>
           );
         })}
       </div>
@@ -1494,10 +1507,35 @@ function PairTargetPanel({ players, myRole, onSteal }) {
   );
 }
 
+/* ─── MARK CHOOSE TARGET PANEL ──────────────────────────────────────── */
+const MarkChooseTargetPanel = memo(function MarkChooseTargetPanel({ players, myRole, onMark }) {
+  const targets = Object.entries(players).filter(([role, p]) => role !== myRole && p?.alive !== false && (p?.hand || []).length > 0);
+  return (
+    <div className="ek-panel-inner">
+      <div className="ek-panel-icon">🔖</div>
+      <h3 className="ek-panel-title">Mark a card</h3>
+      <p className="ek-panel-sub">Pick a player — one of their cards is randomly revealed to everyone</p>
+      <div className="ek-target-list">
+        {targets.map(([role, p]) => (
+          <button key={role} className="ek-target-btn" onClick={() => onMark(role)}>
+            <UserAvatar name={p.name} avatar={p.avatar} className="ek-target-avatar" fallback="?" />
+            <span>{p.name}</span>
+            <span className="ek-target-count">{(p.hand || []).length} cards</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 /* ─── OPPONENT SLOT ──────────────────────────────────────────────────── */
 const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActive, isDead }) {
   const hand = player?.hand || [];
   const displayCount = Math.min(hand.length, 7);
+  // Luôn hiển thị lá đã bị Mark, kể cả khi nằm ngoài giới hạn `displayCount`.
+  const visible = hand.slice(0, displayCount);
+  const overflowMarked = hand.slice(displayCount).filter(c => c.marked);
+  const shown = [...visible, ...overflowMarked];
   return (
     <div className={`ek-opponent ek-opp-${position}${isActive ? ' ek-opponent-active' : ''}${isDead ? ' ek-opponent-dead' : ''}`}>
       <div className="ek-opp-info">
@@ -1508,23 +1546,34 @@ const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActi
         </div>
       </div>
       <div className="ek-opp-hand">
-        {[...Array(displayCount)].map((_, i) => (
-          <div key={i} className="ek-opp-card" style={{ transform: `rotate(${(i - displayCount / 2) * 8}deg)` }}>
-            <img src="/Resources/exploding kitten/backcard.webp" alt="Card Back" className="ek-opp-card-img" draggable={false} />
+        {shown.map((c, i) => (
+          <div
+            key={c.id ?? i}
+            className={`ek-opp-card${c.marked ? ' ek-opp-card-marked' : ''}`}
+            style={{ transform: `rotate(${(i - shown.length / 2) * 8}deg)` }}
+          >
+            {c.marked ? (
+              <img src={c.image || ''} alt={CARD_META[c.type]?.label || 'Marked Card'} className="ek-opp-card-img" draggable={false} />
+            ) : (
+              <img src="/Resources/exploding kitten/backcard.webp" alt="Card Back" className="ek-opp-card-img" draggable={false} />
+            )}
           </div>
         ))}
       </div>
+      {hand.some(c => c.marked) && <div className="ek-opp-marked-badge">🔖</div>}
       {isActive && <div className="ek-opp-pulse" />}
       {isDead && <div className="ek-opp-dead-mark">💥</div>}
     </div>
   );
 }, (prev, next) => {
   // Custom comparator: only re-render when relevant props change
+  const markedOf = p => ((p?.player?.hand || []).filter(c => c.marked).map(c => c.id).join(','));
   return prev.isActive === next.isActive
     && prev.isDead === next.isDead
     && prev.position === next.position
     && (prev.player?.hand?.length === next.player?.hand?.length)
-    && (prev.player?.name === next.player?.name);
+    && (prev.player?.name === next.player?.name)
+    && markedOf(prev) === markedOf(next);
 });
 
 /* ─── DEFUSE PANEL ───────────────────────────────────────────────────── */
@@ -1814,7 +1863,8 @@ function getStyles() {
 
     .ek-opponents-ring { width: 100%; display: flex; flex-direction: row; justify-content: center; align-items: flex-start; gap: 12px; flex-wrap: wrap; flex-shrink: 0; }
     .ek-opponent { display: flex; flex-direction: column; align-items: center; padding: 10px 12px 8px; gap: 6px; background: rgba(16,12,6,0.6); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; position: relative; transition: all .3s; min-width: 120px; }
-    .ek-opponent-active { border-color: var(--ek-fire); box-shadow: 0 0 20px rgba(255,90,31,0.3); }
+    .ek-opponent-active { border-color: var(--ek-fire); box-shadow: 0 0 24px rgba(255,90,31,0.45), 0 0 44px rgba(255,90,31,0.22); animation: oppActiveGlow 1.4s ease-in-out infinite; }
+    @keyframes oppActiveGlow { 0%,100% { box-shadow: 0 0 18px rgba(255,90,31,0.35), 0 0 34px rgba(255,90,31,0.16); } 50% { box-shadow: 0 0 30px rgba(255,90,31,0.55), 0 0 56px rgba(255,90,31,0.28); } }
     .ek-opponent-dead { opacity: 0.35; filter: grayscale(0.8); }
     .ek-opp-info { display: flex; align-items: center; gap: 8px; width: 100%; }
     .ek-opp-avatar { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,144,32,0.15); border: 1.5px solid rgba(255,144,32,0.3); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: var(--ek-ember); flex-shrink: 0; }
@@ -1827,6 +1877,19 @@ function getStyles() {
     .ek-opp-pulse { position: absolute; inset: -4px; border-radius: 18px; border: 2px solid var(--ek-fire); animation: oppPulse 1.2s ease-in-out infinite; pointer-events: none; }
     @keyframes oppPulse { 0%,100% { opacity: .8; transform: scale(1); } 50% { opacity: .2; transform: scale(1.04); } }
     .ek-opp-dead-mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 28px; }
+    .ek-opp-card-marked { border-color: var(--ek-ice); box-shadow: 0 0 8px rgba(191,233,255,0.7), 0 0 0 1px var(--ek-ice); z-index: 3; }
+    .ek-opp-marked-badge { position: absolute; top: -6px; right: 6px; font-size: 14px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); animation: markedPulse 1.2s ease-in-out infinite; }
+    @keyframes markedPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+    .ek-marked-badge {
+      position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(135deg, #0e6a5c, #15c4a4);
+      color: #fff; font-family: 'Nunito', sans-serif; font-size: 9px; font-weight: 900;
+      letter-spacing: .5px; white-space: nowrap; padding: 3px 10px; border-radius: 12px;
+      z-index: 30; pointer-events: none;
+      box-shadow: 0 4px 14px rgba(21,196,164,0.6), 0 0 0 2px rgba(21,196,164,0.35);
+      animation: markedBadgePulse 1.4s ease-in-out infinite;
+    }
+    @keyframes markedBadgePulse { 0%,100% { box-shadow: 0 4px 14px rgba(21,196,164,0.6), 0 0 0 2px rgba(21,196,164,0.35); } 50% { box-shadow: 0 4px 22px rgba(21,196,164,0.95), 0 0 0 3px rgba(21,196,164,0.6); } }
 
     .ek-center-area { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 4px 0; }
     .ek-table-felt-game { width: min(480px, 90vw); background: radial-gradient(ellipse at center, #1e4530 0%, #122a1c 60%, #0c1e12 100%); border: 2px solid var(--ek-felt-border); border-radius: 24px; padding: 20px 20px 18px; box-shadow: inset 0 2px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; gap: 14px; }
@@ -1896,6 +1959,7 @@ function getStyles() {
     /* ── Phase Overlays ── */
     .ek-overlay-panel { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
     .ek-panel-inner { background: #1e1206; border: 1px solid rgba(255,144,32,0.3); border-radius: 20px; padding: 28px; width: min(380px, 92vw); text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+    .ek-favor-panel-inner { width: min(880px, 97vw); padding: 30px; }
     .ek-panel-wide { width: min(520px, 94vw); }
     .ek-panel-icon { font-size: 48px; margin-bottom: 12px; }
     .ek-panel-title { font-size: 16px; font-weight: 800; color: var(--ek-ember); margin-bottom: 6px; }
@@ -1916,12 +1980,16 @@ function getStyles() {
     .ek-target-btn:disabled { opacity: 0.4; cursor: default; }
     .ek-target-avatar { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,144,32,0.2); border: 2px solid var(--ek-ember); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: var(--ek-ember); flex-shrink: 0; }
     .ek-target-count { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-left: auto; }
-    .ek-favor-hand { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 4px; }
-    .ek-favor-card { width: var(--ek-card-w); height: var(--ek-card-h); border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); cursor: pointer; position: relative; transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .22s; flex-shrink: 0; }
+    .ek-favor-hand { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 12px; justify-content: flex-start; align-items: flex-start; margin-bottom: 4px; width: 100%; overflow-x: auto; overflow-y: visible; padding: 30px 10px 30px; scrollbar-width: thin; scrollbar-color: rgba(255,144,32,0.4) transparent; }
+    .ek-favor-hand::-webkit-scrollbar { height: 6px; }
+    .ek-favor-hand::-webkit-scrollbar-thumb { background: rgba(255,144,32,0.4); border-radius: 6px; }
+    .ek-favor-card { width: 190px; height: 260px; flex: 0 0 auto; border-radius: 12px; overflow: hidden; border: 2px solid rgba(255,255,255,0.12); cursor: pointer; position: relative; padding: 0; background: none; text-align: left; transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .22s; }
+    .ek-favor-card-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 0; }
     .ek-favor-card:hover {
-      transform: translateY(-12px) scale(1.08);
+      z-index: 10;
+      transform: translateY(-10px) scale(1.07);
       border-color: color-mix(in srgb, var(--card-color, var(--ek-ember)) 90%, #fff);
-      box-shadow: 0 18px 34px rgba(0,0,0,0.55), 0 0 0 2px var(--card-color, var(--ek-ember)), 0 0 20px color-mix(in srgb, var(--card-color, var(--ek-ember)) 50%, transparent);
+      box-shadow: 0 20px 38px rgba(0,0,0,0.6), 0 0 0 2px var(--card-color, var(--ek-ember)), 0 0 24px color-mix(in srgb, var(--card-color, var(--ek-ember)) 55%, transparent);
     }
     .ek-opp-mini-cards { display: flex; gap: 2px; }
     .ek-opp-mini-card { font-size: 14px; }
@@ -2142,7 +2210,15 @@ function getStyles() {
     .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
     /* ══ MY HAND ══ */
-    .ek-my-zone { width: 100%; flex-shrink: 0; background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%); border-top: 1px solid rgba(255,255,255,0.06); padding: 10px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .ek-my-zone { width: 100%; flex-shrink: 0; background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%); border-top: 1px solid rgba(255,255,255,0.06); padding: 10px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: box-shadow .3s; border-radius: 0; }
+    .ek-my-zone-active {
+      background: linear-gradient(to top, rgba(61,214,140,0.12) 0%, transparent 100%);
+      border-top: 1px solid rgba(61,214,140,0.55);
+      box-shadow: 0 0 34px rgba(61,214,140,0.28), inset 0 0 30px rgba(61,214,140,0.08);
+      animation: myZoneGlow 1.5s ease-in-out infinite;
+    }
+    @keyframes myZoneGlow { 0%,100% { box-shadow: 0 0 22px rgba(61,214,140,0.2), inset 0 0 22px rgba(61,214,140,0.06); } 50% { box-shadow: 0 0 42px rgba(61,214,140,0.4), inset 0 0 34px rgba(61,214,140,0.12); } }
+    .ek-my-zone-active .ek-my-avatar { border-color: var(--ek-green); box-shadow: 0 0 14px rgba(61,214,140,0.6); }
     .ek-my-info { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; }
     .ek-my-avatar { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,90,31,0.15); border: 1.5px solid var(--ek-fire); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: var(--ek-fire); }
     .ek-my-name { font-size: 14px; font-weight: 800; }

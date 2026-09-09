@@ -413,6 +413,35 @@ const sounds = {
   },
 
   /**
+   * mark — a distinct "stamp" reveal chime
+   */
+  mark() {
+    const { ctx, master } = getCtx();
+    const now = ctx.currentTime;
+
+    // Bright "tap" transients
+    [0, 0.08, 0.16].forEach(delay => {
+      const o = makeOsc(ctx, 'square', 660 + delay * 4000, now + delay, now + delay + 0.07);
+      const g = makeGain(ctx, 0);
+      g.gain.setValueAtTime(0.16, now + delay);
+      g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.06);
+      o.connect(g);
+      g.connect(master);
+    });
+
+    // Rising shimmer tail
+    const shimmer = makeOsc(ctx, 'sine', 520, now + 0.16, now + 0.6);
+    shimmer.frequency.setValueAtTime(520, now + 0.16);
+    shimmer.frequency.exponentialRampToValueAtTime(1240, now + 0.55);
+    const sg = makeGain(ctx, 0);
+    sg.gain.setValueAtTime(0, now + 0.16);
+    sg.gain.linearRampToValueAtTime(0.16, now + 0.24);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    shimmer.connect(sg);
+    sg.connect(master);
+  },
+
+  /**
    * win — triumphant fanfare
    */
   win() {
@@ -564,6 +593,7 @@ export const SoundManager = {
       hairy_potato_cat: 'steal',
       beard_cat:        'steal',
       rainbow_cat:      'steal',
+      mark:             'mark',
     };
     return map[cardType] || 'play';
   },
