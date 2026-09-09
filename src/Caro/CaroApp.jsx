@@ -7,6 +7,8 @@ import {
 import { listenRoom } from "../roomService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
+import { useAuth } from "../auth/AuthContext";
+import UserAvatar from "../components/UserAvatar";
 
 const TURN_SECONDS = 45;
 
@@ -40,7 +42,8 @@ body{font-family:'Orbitron',sans-serif;background:var(--bg);color:var(--text);mi
   outline:none;transition:border-color .15s;margin-bottom:10px;display:block;}
 .c-inp:focus{border-color:var(--x);}
 .c-inp::placeholder{color:var(--muted);}
-.c-inp-mono{font-family:'Space Mono',monospace;letter-spacing:3px;font-size:13px;}
+  .c-inp-mono{font-family:'Space Mono',monospace;letter-spacing:3px;font-size:13px;}
+  .c-inp-locked{opacity:.5;cursor:not-allowed;color:var(--muted);background:var(--surface2);}
 
 .mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
 .mode-card{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius-sm);
@@ -312,6 +315,7 @@ function findWinLine(grid, sym, last) {
 }
 
 export default function CaroApp() {
+    const { displayName, avatar, isGoogle } = useAuth();
     const [screen, setScreen] = useState("lobby");
     const [name, setName] = useState("");
     const [inputRoom, setInputRoom] = useState("");
@@ -329,6 +333,10 @@ export default function CaroApp() {
     const [timeLeft, setTimeLeft] = useState(TURN_SECONDS);
     const timerRef = useRef(null);
     const timeoutFiredRef = useRef(false);
+
+    /* ── Display name is driven by auth: Google users are locked to their
+        account name; anonymous users can still type their own. ── */
+    const fieldName = name || displayName;
 
     /* ── CSS inject ── */
     useEffect(() => {
@@ -479,18 +487,18 @@ export default function CaroApp() {
 
     /* ── Lobby actions ── */
     async function handleCreate() {
-        if (!name.trim()) return setError("Nhập tên của bạn!");
+        if (!fieldName.trim()) return setError("Nhập tên của bạn!");
         setError("");
-        const id = await createCaroRoom(name.trim(), mode);
+        const id = await createCaroRoom(fieldName.trim(), mode, { avatar });
         setRoomId(id); setMyRole("player1"); setScreen("room");
     }
 
     async function handleJoin() {
-        if (!name.trim()) return setError("Nhập tên của bạn!");
+        if (!fieldName.trim()) return setError("Nhập tên của bạn!");
         if (!inputRoom.trim()) return setError("Nhập mã phòng!");
         setError("");
         try {
-            const slot = await joinCaroRoom(inputRoom.toUpperCase(), name.trim());
+            const slot = await joinCaroRoom(inputRoom.toUpperCase(), fieldName.trim(), { avatar });
             setRoomId(inputRoom.toUpperCase()); setMyRole(slot); setScreen("room");
         } catch (e) { setError(e.message); }
     }
@@ -604,7 +612,8 @@ export default function CaroApp() {
 
             <div className="c-card">
                 <div className="c-card-title">Tạo phòng mới</div>
-                <input className="c-inp" placeholder="Tên của bạn" value={name}
+                <input className={`c-inp${isGoogle ? " c-inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+                    disabled={isGoogle}
                     onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleCreate()} />
                 <button className="c-btn c-btn-x" onClick={handleCreate}>
                     Tạo phòng · {mode === MODE_FREE ? "Tự Do" : "Chặn 2 Đầu"} →
@@ -613,7 +622,9 @@ export default function CaroApp() {
 
             <div className="c-card">
                 <div className="c-card-title">Tham gia phòng</div>
-                <input className="c-inp" placeholder="Tên của bạn" value={name} onChange={e => setName(e.target.value)} />
+                <input className={`c-inp${isGoogle ? " c-inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+                    disabled={isGoogle}
+                    onChange={e => setName(e.target.value)} />
                 <input className="c-inp c-inp-mono" placeholder="MÃ PHÒNG" value={inputRoom}
                     onChange={e => setInputRoom(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleJoin()} />
                 <button className="c-btn c-btn-sec" onClick={handleJoin}>Tham gia →</button>
@@ -649,9 +660,7 @@ export default function CaroApp() {
                     const sym = idx === 0 ? "X" : "O";
                     return (
                         <div className="player-row" key={slot}>
-                            <div className={`av ${p ? (idx === 0 ? "av-x" : "av-o") : "av-empty"}`}>
-                                {p ? p.name[0].toUpperCase() : (idx + 1)}
-                            </div>
+                            <UserAvatar name={p?.name} avatar={p?.avatar} className={`av ${p ? (idx === 0 ? "av-x" : "av-o") : "av-empty"}`} fallback={idx + 1} />
                             <div className={`p-name${!p ? " p-name-empty" : ""}`}>
                                 {p?.name ?? "Chờ..."}
                                 {p && <span className={`sym-badge sym-${sym.toLowerCase()}`}>{SYM[sym]}</span>}
@@ -708,6 +717,7 @@ export default function CaroApp() {
                             {sorted.map((p, i) => (
                                 <div key={p.role} className={`lb-row ${p.role === myRole ? "lbme" : ""}`}>
                                     <span className="lb-rank">{MEDALS[i] ?? "—"}</span>
+                                    <UserAvatar name={p.name} avatar={p?.avatar} className="av av-x" style={{ width: 30, height: 30, fontSize: 12 }} />
                                     <span className="lb-name">
                                         {p.sym && <span style={{ color: p.sym === "X" ? "var(--x)" : "var(--o)", marginRight: 6, fontSize: 16 }}>{SYM[p.sym]}</span>}
                                         {p.name}
@@ -766,7 +776,10 @@ export default function CaroApp() {
             {/* Scores */}
             <div className="score-bar">
                 <div className={`score-player ${myRole === turnRole ? "my-turn" : ""}`}>
-                    <div className="score-p-name">{players?.[myRole]?.name} (bạn)</div>
+                    <div className="score-p-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <UserAvatar name={players?.[myRole]?.name} avatar={players?.[myRole]?.avatar} className="av av-x" style={{ width: 20, height: 20, fontSize: 10 }} />
+                        {players?.[myRole]?.name} (bạn)
+                    </div>
                     <div className={`score-p-val val-${(mySym || "x").toLowerCase()}`}>
                         {SYM[mySym] ?? "?"}
                         <span className="score-wins" style={{ color: mySym === "X" ? "var(--x)" : "var(--o)", marginLeft: 6 }}>
@@ -776,7 +789,10 @@ export default function CaroApp() {
                 </div>
                 <div className="score-vs">VS</div>
                 <div className={`score-player ${opponentRole === turnRole ? "my-turn" : ""}`}>
-                    <div className="score-p-name">{players?.[opponentRole]?.name ?? "..."}</div>
+                    <div className="score-p-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <UserAvatar name={players?.[opponentRole]?.name} avatar={players?.[opponentRole]?.avatar} className="av av-o" style={{ width: 20, height: 20, fontSize: 10 }} />
+                        {players?.[opponentRole]?.name ?? "..."}
+                    </div>
                     <div className={`score-p-val val-${(opponentSym || "o").toLowerCase()}`}>
                         {SYM[opponentSym] ?? "?"}
                         <span className="score-wins" style={{ color: opponentSym === "X" ? "var(--x)" : "var(--o)", marginLeft: 6 }}>

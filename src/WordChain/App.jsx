@@ -3,6 +3,8 @@ import { ref, onValue, update, onDisconnect } from "firebase/database";
 import { db } from "../firebase";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
 import { startGame, submitWord, loseLife, isValidWord, timeoutTurn, requestRematch } from "./gameService";
+import { useAuth } from "../auth/AuthContext";
+import UserAvatar from "../components/UserAvatar";
 
 /* ─── CSS ─────────────────────────────────────────────────── */
 const STYLES = `
@@ -75,6 +77,10 @@ const STYLES = `
   }
   .input:focus { border-color: #1D9E75; box-shadow: 0 0 0 3px rgba(29,158,117,.18); }
   .input::placeholder { color: #3a3a45; }
+  .input-locked {
+    opacity: .5; cursor: not-allowed; color: #9aa;
+    background: rgba(30,30,40,.35);
+  }
 
   .btn {
     width: 100%; padding: 14px; border-radius: 12px; border: none;
@@ -298,6 +304,7 @@ const PLAYER_COLORS = {
 const PLAYER_SLOTS = ["player1", "player2", "player3", "player4"];
 
 export default function App() {
+  const { displayName, avatar, isGoogle } = useAuth();
   const [screen, setScreen] = useState("lobby");
   const [name, setName] = useState("");
   const [inputRoomId, setInputRoomId] = useState("");
@@ -314,6 +321,9 @@ export default function App() {
   const inputRef = useRef(null);
   const handlingTimeoutRef = useRef(false);
 
+  /* Display name is driven by auth: Google users are locked to their account
+     name; anonymous users can still type their own. */
+  const fieldName = name || displayName;
   const game = roomData?.game;
   const players = roomData?.players;
   const playerCount = Object.keys(players || {}).length;
@@ -426,20 +436,20 @@ export default function App() {
 
   /* ── HANDLERS ── */
   async function handleCreate() {
-    if (!name.trim()) return setError("Nhập tên đi!");
+    if (!fieldName.trim()) return setError("Nhập tên đi!");
     setError("");
-    const id = await createRoom(name.trim());
+    const id = await createRoom(fieldName.trim(), { avatar });
     setRoomId(id);
     setMyRole("player1");
     setScreen("room");
   }
 
   async function handleJoin() {
-    if (!name.trim()) return setError("Nhập tên đi!");
+    if (!fieldName.trim()) return setError("Nhập tên đi!");
     if (!inputRoomId.trim()) return setError("Nhập mã phòng!");
     setError("");
     try {
-      const slot = await joinRoom(inputRoomId.toUpperCase(), name.trim());
+      const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
       setRoomId(inputRoomId.toUpperCase());
       setMyRole(slot);
       setScreen("room");
@@ -541,7 +551,8 @@ export default function App() {
 
       <div className="card">
         <div className="card-label">Tạo phòng mới</div>
-        <input className="input" placeholder="Tên của bạn" value={name}
+        <input className={`input${isGoogle ? " input-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+          disabled={isGoogle}
           onChange={e => setName(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleCreate()} />
         <button className="btn btn-primary" onClick={handleCreate}>Tạo phòng →</button>
@@ -549,7 +560,8 @@ export default function App() {
 
       <div className="card">
         <div className="card-label">Join phòng</div>
-        <input className="input" placeholder="Tên của bạn" value={name}
+        <input className={`input${isGoogle ? " input-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+          disabled={isGoogle}
           onChange={e => setName(e.target.value)} />
         <input className="input" placeholder="Mã phòng (vd: ABC123)"
           value={inputRoomId}
@@ -584,9 +596,7 @@ export default function App() {
           const avClass = p ? `${avBase} filled` : avBase;
           return (
             <div className="player-row" key={slot}>
-              <div className={`player-avatar ${avClass}`}>
-                {p?.name?.[0]?.toUpperCase() ?? (idx + 1)}
-              </div>
+              <UserAvatar name={p?.name} avatar={p?.avatar} className={`player-avatar ${avClass}`} fallback={idx + 1} />
               <div className="player-name" style={{ color: p ? "#f0ede8" : "#333" }}>
                 {p?.name ?? "Chờ người chơi..."}
                 {slot === myRole && <span className="badge-you">bạn</span>}
@@ -690,10 +700,17 @@ export default function App() {
             <div key={role}
               className={`player-card${isActive ? ` ${col.activeClass}` : ""}${p?.lives <= 0 ? " dead" : ""}`}>
               {isActive && <div className={`active-dot ${col.dot}`} />}
-              <div className="pc-name">
-                {role === myRole ? `👤 ` : `🎮 `}
-                {p?.name}
-                {!p?.online && <span className="offline-badge">offline</span>}
+              <div className="pc-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <UserAvatar
+                  name={p?.name}
+                  avatar={p?.avatar}
+                  className="player-avatar"
+                  style={{ width: 22, height: 22, fontSize: 10 }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {p?.name}
+                  {!p?.online && <span className="offline-badge">offline</span>}
+                </span>
               </div>
               <Hearts lives={p?.lives ?? 3} active={isActive} />
             </div>

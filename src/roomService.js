@@ -6,12 +6,13 @@ function genRoomId() {
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-export async function createRoom(hostName) {
+export async function createRoom(hostName, opts = {}) {
   const roomId = genRoomId();
+  const avatar = opts.avatar || "";
   await set(ref(db, `rooms/${roomId}`), {
     status: "waiting",
     players: {
-      player1: { name: hostName, lives: 3, online: true, rematch: false },
+      player1: { name: hostName, avatar, lives: 3, online: true, rematch: false },
     },
     game: null,
     createdAt: Date.now(),
@@ -23,7 +24,7 @@ export async function createRoom(hostName) {
   return roomId;
 }
 
-export async function joinRoom(roomId, playerName) {
+export async function joinRoom(roomId, playerName, opts = {}) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   if (!snap.exists()) throw new Error("Phòng không tồn tại!");
 
@@ -37,9 +38,11 @@ export async function joinRoom(roomId, playerName) {
   if (taken.length >= 6) throw new Error("Phòng đã đầy (6/6)!");
 
   const nextSlot = slots.find(s => !taken.includes(s));
+  const avatar = opts.avatar || "";
 
   const updates = {};
   updates[`players/${nextSlot}/name`] = playerName;
+  updates[`players/${nextSlot}/avatar`] = avatar;
   updates[`players/${nextSlot}/lives`] = 3;
   updates[`players/${nextSlot}/online`] = true;
   updates[`players/${nextSlot}/rematch`] = false;

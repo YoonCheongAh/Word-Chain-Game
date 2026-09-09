@@ -68,13 +68,13 @@ function genRoomId() {
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-export async function createCaroRoom(hostName, mode) {
+export async function createCaroRoom(hostName, mode, opts = {}) {
   const roomId = genRoomId();
   await set(ref(db, `rooms/${roomId}`), {
     status: "waiting",
     gameType: "caro",
     players: {
-      player1: { name: hostName, score: 0, online: true },
+      player1: { name: hostName, avatar: opts.avatar || "", score: 0, online: true },
     },
     caro: { mode },
     createdAt: Date.now(),
@@ -82,7 +82,7 @@ export async function createCaroRoom(hostName, mode) {
   return roomId;
 }
 
-export async function joinCaroRoom(roomId, playerName) {
+export async function joinCaroRoom(roomId, playerName, opts = {}) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   if (!snap.exists()) throw new Error("Phòng không tồn tại!");
 
@@ -95,7 +95,7 @@ export async function joinCaroRoom(roomId, playerName) {
   if (Object.keys(players).length >= 2) throw new Error("Phòng đã đầy (2/2)!");
 
   await update(ref(db, `rooms/${roomId}`), {
-    "players/player2": { name: playerName, score: 0, online: true },
+    "players/player2": { name: playerName, avatar: opts.avatar || "", score: 0, online: true },
     status: "ready",
   });
 

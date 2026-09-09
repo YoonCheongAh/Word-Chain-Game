@@ -7,6 +7,8 @@ import {
 } from "./ludoService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
+import { useAuth } from "../auth/AuthContext";
+import UserAvatar from "../components/UserAvatar";
 
 /* ─── ASSET PATHS ─────────────────────────────────────── */
 const ASSETS = {
@@ -92,6 +94,7 @@ const STYLES = `
   .ludo-inp:focus { border-color:var(--c-green); box-shadow:0 0 0 3px rgba(34,197,94,.16); }
   .ludo-inp::placeholder { color:var(--c-muted); }
   .ludo-inp-mono { font-family:'JetBrains Mono',monospace; letter-spacing:3px; font-size:14px; }
+  .ludo-inp-locked { opacity:.5; cursor:not-allowed; color:var(--c-muted); background:var(--c-surface2); }
   .ludo-btn { display:block; width:100%; padding:13px 16px; border-radius:12px; border:none; cursor:pointer; font-family:'Nunito',sans-serif; font-size:14px; font-weight:800; transition:opacity .15s,transform .1s,box-shadow .15s; text-align:center; }
   .ludo-btn:active { transform:scale(.98); }
   .ludo-btn:disabled { opacity:.35; cursor:not-allowed; }
@@ -117,7 +120,7 @@ const STYLES = `
   .ludo-divider { border:none; border-top:1px solid var(--c-border); margin:14px 0; }
   .ludo-player-row { display:flex; align-items:center; gap:11px; padding:10px; border-radius:12px; margin-bottom:6px; background:rgba(10,14,26,.4); border:1px solid transparent; transition:border-color .2s; }
   .ludo-player-row.filled { border-color:var(--c-border); }
-  .ludo-av { width:36px; height:36px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:900; flex-shrink:0; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.3); }
+  .ludo-av { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:900; flex-shrink:0; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.3); }
   .ludo-av-empty { background:var(--c-surface2); color:var(--c-muted); box-shadow:none; }
   .ludo-p-name { font-size:15px; font-weight:800; flex:1; }
   .ludo-p-name-empty { color:var(--c-muted); font-weight:500; }
@@ -367,6 +370,7 @@ function ConfettiBurst() {
 }
 
 export default function LudoApp() {
+    const { displayName, avatar, isGoogle } = useAuth();
     const [screen, setScreen] = useState("lobby");
     const [name, setName] = useState("");
     const [inputRoomId, setInputRoomId] = useState("");
@@ -381,6 +385,10 @@ export default function LudoApp() {
     const [boardW, setBoardW] = useState(400);
     const [boardImgOk, setBoardImgOk] = useState(true);
     const [mute, setMute] = useState(false);
+
+    /* ── Display name is driven by auth: Google users are locked to their
+        account name; anonymous users can still type their own. ── */
+    const fieldName = name || displayName;
 
     // ── effect #3: special-move banner ──
     const [specialFx, setSpecialFx] = useState(null); // {text}
@@ -648,20 +656,20 @@ export default function LudoApp() {
 
     /* ─── Lobby actions ─────────────────────────────────────── */
     async function handleCreate() {
-        if (!name.trim()) return setError("Nhập tên của bạn!");
+        if (!fieldName.trim()) return setError("Nhập tên của bạn!");
         setError("");
         playSound("click");
-        const id = await createRoom(name.trim());
+        const id = await createRoom(fieldName.trim(), { avatar });
         setRoomId(id); setMyRole("player1"); setScreen("room");
     }
 
     async function handleJoin() {
-        if (!name.trim()) return setError("Nhập tên của bạn!");
+        if (!fieldName.trim()) return setError("Nhập tên của bạn!");
         if (!inputRoomId.trim()) return setError("Nhập mã phòng!");
         setError("");
         playSound("click");
         try {
-            const slot = await joinRoom(inputRoomId.toUpperCase(), name.trim());
+            const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
             setRoomId(inputRoomId.toUpperCase()); setMyRole(slot); setScreen("room");
         } catch (e) { setError(e.message); }
     }
@@ -734,6 +742,14 @@ export default function LudoApp() {
                                 borderColor: active ? COLOR_HEX[col] : undefined,
                                 boxShadow: active ? `0 0 16px -2px ${COLOR_HEX[col]}` : undefined,
                             }}>
+                            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                <UserAvatar
+                                    name={players[role]?.name}
+                                    avatar={players[role]?.avatar}
+                                    className="ludo-av"
+                                    style={{ width: 26, height: 26, borderRadius: 50, fontSize: 11, background: COLOR_HEX[col] }}
+                                />
+                            </div>
                             <div className="ludo-sidebar-name">{players[role]?.name}</div>
                             <div className="ludo-sidebar-pawns">
                                 {pd.pawns.map(p => (
@@ -777,14 +793,16 @@ export default function LudoApp() {
                 </div>
                 <div className="ludo-card">
                     <div className="ludo-card-title">Tạo phòng mới</div>
-                    <input className="ludo-inp" placeholder="Tên của bạn" value={name}
+                    <input className={`ludo-inp${isGoogle ? " ludo-inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+                        disabled={isGoogle}
                         onChange={e => setName(e.target.value)}
                         onKeyDown={e => e.key === "Enter" && handleCreate()} />
                     <button className="ludo-btn ludo-btn-primary" onClick={handleCreate}>Tạo phòng →</button>
                 </div>
                 <div className="ludo-card join">
                     <div className="ludo-card-title">Tham gia phòng</div>
-                    <input className="ludo-inp" placeholder="Tên của bạn" value={name}
+                    <input className={`ludo-inp${isGoogle ? " ludo-inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+                        disabled={isGoogle}
                         onChange={e => setName(e.target.value)} />
                     <input className="ludo-inp ludo-inp-mono" placeholder="MÃ PHÒNG" value={inputRoomId}
                         onChange={e => setInputRoomId(e.target.value.toUpperCase())}
@@ -823,11 +841,9 @@ export default function LudoApp() {
                     const col = ["r", "g", "y", "b"][idx];
                     return (
                         <div className={`ludo-player-row${p ? " filled" : ""}`} key={slot}>
-                            <div className="ludo-av" style={p
+                            <UserAvatar name={p?.name} avatar={p?.avatar} className="ludo-av" fallback={idx + 1} style={p
                                 ? { background: COLOR_HEX[col], boxShadow: `0 4px 12px ${COLOR_HEX[col]}66` }
-                                : undefined}>
-                                {p ? p.name[0].toUpperCase() : idx + 1}
-                            </div>
+                                : undefined} />
                             <div className={`ludo-p-name${!p ? " ludo-p-name-empty" : ""}`}>
                                 {p?.name ?? "Chờ..."}
                                 {isMe && <span className="ludo-p-tag ludo-tag-you">bạn</span>}
@@ -874,10 +890,17 @@ export default function LudoApp() {
                             {sorted.map((p, i) => (
                                 <div key={p.role} className={`ludo-lb-row${p.role === myRole ? " me" : ""}`}>
                                     <span className="ludo-lb-rank">{MEDALS[i] ?? ""}</span>
+                                    <UserAvatar
+                                        name={p.name}
+                                        avatar={players?.[p.role]?.avatar}
+                                        className="ludo-av"
+                                        style={{ width: 28, height: 28, borderRadius: 50, fontSize: 12, background: COLOR_HEX[p.color] }}
+                                    />
                                     <span className="ludo-lb-name">
-                                        <span className="ludo-dot" style={{ background: COLOR_HEX[p.color] }} />
+                                        <span className="ludo-lb-me">
+                                            {p.role === myRole ? " (bạn)" : ""}
+                                        </span>
                                         {p.name}
-                                        {p.role === myRole && <span className="ludo-lb-me"> (bạn)</span>}
                                     </span>
                                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: COLOR_HEX[p.color] }}>{p.done}/4 🏠</span>
                                 </div>

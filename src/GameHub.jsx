@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "./auth/AuthContext";
+import SettingsPanel from "./auth/SettingsPanel";
+import UserAvatar from "./components/UserAvatar";
 import App from "./WordChain/App";
 import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
@@ -148,6 +151,31 @@ const HUB_STYLES = `
     letter-spacing: 0.5px;
     padding-bottom: 6px;
   }
+
+  /* ── User chip / settings ── */
+  .gh-user-chip {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px 5px 5px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    font-family: 'Orbitron', sans-serif;
+  }
+  .gh-user-chip:hover { border-color: var(--g1); background: rgba(255,255,255,0.03); }
+  .gh-user-avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800; color: var(--g1);
+    background: linear-gradient(135deg,#0f3d2e,#155c45);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+    overflow: hidden;
+  }
+  .gh-user-name { font-size: 12px; font-weight: 700; color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gh-user-google { font-size: 10px; color: #7aa7ff; margin-top: 1px; }
+  .gh-user-anon { font-size: 10px; color: var(--g2); margin-top: 1px; }
+  .gh-user-cog { font-size: 13px; color: var(--dim); }
 
   /* ── Marquee strip ── */
   .gh-marquee-wrap {
@@ -893,6 +921,8 @@ function Marquee() {
 ───────────────────────────────────────────── */
 export default function GameHub() {
   const [activeGame, setActiveGame] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const { displayName, avatar, isGoogle, initializing } = useAuth();
 
   /* Inject styles once */
   useEffect(() => {
@@ -953,8 +983,17 @@ export default function GameHub() {
             </div>
             <span className="gh-beta">BETA</span>
           </div>
-          <div className="gh-header-tagline">
-            Chọn game · mời bạn bè · chơi thôi
+          <div className="gh-header-tagline" style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 2 }}>
+            <span>Chọn game · mời bạn bè · chơi thôi</span>
+            {!initializing && (
+              <button className="gh-user-chip" onClick={() => setShowSettings(true)}>
+                <UserAvatar name={displayName} avatar={avatar} className="gh-user-avatar" />
+                <span className="gh-user-name">{displayName || "Ẩn danh"}</span>
+                <span className={`gh-user-cog ${isGoogle ? "gh-user-google" : "gh-user-anon"}`}>
+                  {isGoogle ? "⬢" : "⚙"}
+                </span>
+              </button>
+            )}
           </div>
         </header>
       </div>
@@ -986,6 +1025,8 @@ export default function GameHub() {
           </div>
         </footer>
       </div>
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

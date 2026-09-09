@@ -3,6 +3,8 @@ import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomServic
 import { startWordleGame, submitGuess, checkGuess, requestWordleRematch, handleWordTimeout, WORD_TIME_MS, MAX_SCORE_PER_WORD, MAX_GUESSES } from "./wordleService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
+import { useAuth } from "../auth/AuthContext";
+import UserAvatar from "../components/UserAvatar";
 
 /* ─── STYLES ─────────────────────────────────────────── */
 const STYLES = `
@@ -65,6 +67,7 @@ const STYLES = `
   .inp:focus { border-color: var(--c-green); }
   .inp::placeholder { color: var(--c-muted); }
   .inp-mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 3px; font-size: 14px; }
+  .inp-locked { opacity: .5; cursor: not-allowed; color: var(--c-muted); background: var(--c-surface2); }
 
   .btn {
     display: block; width: 100%; padding: 13px 16px;
@@ -331,6 +334,7 @@ const ANIM_FLIP   = "flip";
 const ANIM_BOUNCE = "bounce";
 
 export default function WordleApp() {
+  const { displayName, avatar, isGoogle } = useAuth();
   const [screen, setScreen]           = useState("lobby");
   const [name, setName]               = useState("");
   const [inputRoomId, setInputRoomId] = useState("");
@@ -346,6 +350,10 @@ export default function WordleApp() {
   const [animatingRow, setAnimatingRow] = useState(null);
   const [shakeRow, setShakeRow]       = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+
+  /* ── Display name is driven by auth: Google users are locked to their
+     account name; anonymous users can still type their own. ── */
+  const fieldName = name || displayName;
 
   const timerRef       = useRef(null);
   const validatedCache = useRef(new Set());
@@ -526,18 +534,18 @@ export default function WordleApp() {
 
   /* ── Lobby actions ── */
   async function handleCreate() {
-    if (!name.trim()) return setError("Nhập tên của bạn!");
+    if (!fieldName.trim()) return setError("Nhập tên của bạn!");
     setError("");
-    const id = await createRoom(name.trim());
+    const id = await createRoom(fieldName.trim(), { avatar });
     setRoomId(id); setMyRole("player1"); setScreen("room");
   }
 
   async function handleJoin() {
-    if (!name.trim()) return setError("Nhập tên của bạn!");
+    if (!fieldName.trim()) return setError("Nhập tên của bạn!");
     if (!inputRoomId.trim()) return setError("Nhập mã phòng!");
     setError("");
     try {
-      const slot = await joinRoom(inputRoomId.toUpperCase(), name.trim());
+      const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
       setRoomId(inputRoomId.toUpperCase()); setMyRole(slot); setScreen("room");
     } catch (e) { setError(e.message); }
   }
@@ -607,6 +615,14 @@ export default function WordleApp() {
           const wordDone = pd?.wordDone;
           return (
             <div className="sidebar-player" key={role}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                <UserAvatar
+                  name={players[role]?.name}
+                  avatar={players[role]?.avatar}
+                  className="av av-host"
+                  style={{ width: 30, height: 30, fontSize: 12 }}
+                />
+              </div>
               <div className="sidebar-player-name">{players[role]?.name}</div>
               <div className="sidebar-mini-grid">
                 {Array(MAX_GUESSES).fill(null).map((_, ri) => {
@@ -654,14 +670,16 @@ export default function WordleApp() {
         <p className="logo-sub">// đoán từ 5 chữ · 2–6 người · realtime</p>
         <div className="card">
           <div className="card-title">Tạo phòng mới</div>
-          <input className="inp" placeholder="Tên của bạn" value={name}
+          <input className={`inp${isGoogle ? " inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+            disabled={isGoogle}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleCreate()} />
           <button className="btn btn-primary" onClick={handleCreate}>Tạo phòng →</button>
         </div>
         <div className="card">
           <div className="card-title">Tham gia phòng</div>
-          <input className="inp" placeholder="Tên của bạn" value={name}
+          <input className={`inp${isGoogle ? " inp-locked" : ""}`} placeholder="Tên của bạn" value={fieldName}
+            disabled={isGoogle}
             onChange={e => setName(e.target.value)} />
           <input className="inp inp-mono" placeholder="MÃ PHÒNG" value={inputRoomId}
             onChange={e => setInputRoomId(e.target.value.toUpperCase())}
@@ -690,9 +708,7 @@ export default function WordleApp() {
           const isMe = slot === myRole;
           return (
             <div className="player-row" key={slot}>
-              <div className={`av ${p ? AV_CLASSES[idx] : "av-empty"}`}>
-                {p ? p.name[0].toUpperCase() : (idx + 1)}
-              </div>
+              <UserAvatar name={p?.name} avatar={p?.avatar} className={`av ${p ? AV_CLASSES[idx] : "av-empty"}`} fallback={idx + 1} />
               <div className={`p-name${!p ? " p-name-empty" : ""}`}>
                 {p?.name ?? "Chờ..."}
                 {isMe && <span className="p-tag tag-you">bạn</span>}
@@ -739,6 +755,12 @@ export default function WordleApp() {
                 <div key={p.role} className={`lb-row${p.role === myRole ? " me" : ""}`}>
                   {/* MEDALS now covers up to index 5 */}
                   <span className="lb-rank">{MEDALS[i] ?? "—"}</span>
+                  <UserAvatar
+                    name={p.name}
+                    avatar={players?.[p.role]?.avatar}
+                    className="av av-host"
+                    style={{ width: 30, height: 30, fontSize: 12 }}
+                  />
                   <span className="lb-name">
                     {p.name}
                     {p.role === myRole && <span className="lb-me-tag"> (bạn)</span>}

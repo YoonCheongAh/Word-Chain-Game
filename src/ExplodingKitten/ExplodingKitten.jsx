@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from '../roomService';
+import { useAuth } from '../auth/AuthContext';
+import UserAvatar from '../components/UserAvatar';
 import { SoundManager } from './ExplodingKittenSound';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
@@ -50,6 +52,7 @@ const FX_ICON_MAP = {
 };
 
 export default function ExplodingKitten() {
+  const { displayName, avatar, isGoogle } = useAuth();
   const [screen, setScreen] = useState('lobby');
   const [name, setName] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -65,6 +68,10 @@ export default function ExplodingKitten() {
   const [toast, setToast] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
   const nopeTimerRef = useRef(null);
+
+  /* ── Display name is driven by auth: Google users are locked to their
+       account name; anonymous users can still type their own. ── */
+  const fieldName = isGoogle ? displayName : (name || displayName);
 
   const game = roomData?.game;
   const players = roomData?.players || {};
@@ -126,27 +133,27 @@ export default function ExplodingKitten() {
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!name.trim()) return setErr('Enter your name!');
+    if (!fieldName.trim()) return setErr('Enter your name!');
     setErr('');
-    const id = await createRoom(name.trim());
+    const id = await createRoom(fieldName.trim(), { avatar });
     setRoomId(id);
     setMyRole('player1');
     setScreen('room');
-  }, [name]);
+  }, [fieldName, avatar]);
 
   const handleJoin = useCallback(async () => {
-    if (!name.trim()) return setErr('Enter your name!');
+    if (!fieldName.trim()) return setErr('Enter your name!');
     if (!inputRoomId.trim()) return setErr('Enter room code!');
     setErr('');
     try {
-      const slot = await joinRoom(inputRoomId.toUpperCase(), name.trim());
+      const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
       setRoomId(inputRoomId.toUpperCase());
       setMyRole(slot);
       setScreen('room');
     } catch (e) {
       setErr(e.message);
     }
-  }, [name, inputRoomId]);
+  }, [fieldName, inputRoomId, avatar]);
 
   const handleStartGame = useCallback(() => startGame(roomId), [roomId]);
 
@@ -247,7 +254,7 @@ export default function ExplodingKitten() {
   const handlePlaceImploding = useCallback((pos) => placeImplodingKitten(roomId, myRole, pos), [roomId, myRole]);
 
   if (screen === 'lobby') {
-    return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} name={name} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} />;
+    return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} fieldValue={fieldName} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} isGoogle={isGoogle} />;
   }
   if (screen === 'room') {
     return <RoomScreen roomData={roomData} roomId={roomId} myRole={myRole} onStart={handleStartGame} onBack={resetToLobby} />;
@@ -288,7 +295,7 @@ export default function ExplodingKitten() {
 }
 
 /* ─── LOBBY ─────────────────────────────────────────────────────────── */
-const LobbyScreen = memo(function LobbyScreen({ onCreateRoom, onJoinRoom, name, setName, inputRoomId, setInputRoomId, err }) {
+const LobbyScreen = memo(function LobbyScreen({ onCreateRoom, onJoinRoom, fieldValue, setName, inputRoomId, setInputRoomId, err, isGoogle }) {
   return (
     <div className="ek-root ek-lobby-root">
       <div className="ek-lobby-sparks" aria-hidden="true">
@@ -306,9 +313,10 @@ const LobbyScreen = memo(function LobbyScreen({ onCreateRoom, onJoinRoom, name, 
           <div className="ek-form-card">
             <div className="ek-form-tag">Your Identity</div>
             <input
-              className="ek-field"
+              className={`ek-field${isGoogle ? ' ek-field-locked' : ''}`}
               placeholder="Enter your name…"
-              value={name}
+              value={fieldValue}
+              disabled={isGoogle}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && onCreateRoom()}
             />
@@ -378,7 +386,7 @@ function RoomScreen({ roomData, roomId, myRole, onStart, onBack }) {
                   <div className="ek-player-slot-indicator">
                     <span className="ek-slot-label">{SLOT_LABELS[i]}</span>
                   </div>
-                  <div className="ek-player-avatar">{p ? p.name[0].toUpperCase() : '?'}</div>
+                  <UserAvatar name={p?.name} avatar={p?.avatar} className="ek-player-avatar" fallback={p ? '' : '?'} />
                   <div className="ek-player-details">
                     <div className="ek-player-name">{p ? p.name : 'Empty Slot'}</div>
                     {p && slot === myRole && <div className="ek-player-you">You</div>}
@@ -978,7 +986,7 @@ function GameBoardScreen({
         {/* ── My hand ── */}
         <div className="ek-my-zone">
           <div className="ek-my-info">
-            <div className="ek-my-avatar">{players[myRole]?.name?.[0] || 'Y'}</div>
+            <UserAvatar name={players?.[myRole]?.name} avatar={players?.[myRole]?.avatar} className="ek-my-avatar" fallback="Y" />
             <div className="ek-my-name">{players[myRole]?.name || 'You'}</div>
             <div className="ek-my-cardcount">{myHand.length} cards</div>
             {myTurn && <div className="ek-my-turn-dot" />}
@@ -1350,7 +1358,7 @@ const FavorChooseTargetPanel = memo(function FavorChooseTargetPanel({ players, m
       <div className="ek-target-list">
         {targets.map(([role, p]) => (
           <button key={role} className="ek-target-btn" onClick={() => onSelect(role)}>
-            <span className="ek-target-avatar">{p.name[0]}</span>
+            <UserAvatar name={p.name} avatar={p.avatar} className="ek-target-avatar" fallback="?" />
             <span>{p.name}</span>
             <span className="ek-target-count">{(p.hand || []).length} cards</span>
           </button>
@@ -1428,7 +1436,7 @@ function PairTargetPanel({ players, myRole, onSteal }) {
       <div className="ek-target-list">
         {targets.map(([role, p]) => (
           <button key={role} className="ek-target-btn" onClick={() => setChosenTarget(role)} disabled={!p.hand || p.hand.length === 0}>
-            <span className="ek-target-avatar">{p.name[0]}</span>
+            <UserAvatar name={p.name} avatar={p.avatar} className="ek-target-avatar" fallback="?" />
             <div className="ek-opp-mini-cards">
               {[...Array(Math.min(p.hand?.length || 0, 5))].map((_, i) => (
                 <span key={i} className="ek-opp-mini-card">🐱</span>
@@ -1452,7 +1460,7 @@ const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActi
   return (
     <div className={`ek-opponent ek-opp-${position}${isActive ? ' ek-opponent-active' : ''}${isDead ? ' ek-opponent-dead' : ''}`}>
       <div className="ek-opp-info">
-        <div className="ek-opp-avatar">{player?.name?.[0] || '?'}</div>
+        <UserAvatar name={player?.name} avatar={player?.avatar} className="ek-opp-avatar" fallback="?" />
         <div>
           <div className="ek-opp-name">{player?.name}</div>
           <div className="ek-opp-cards">{hand.length} cards</div>
@@ -1704,6 +1712,7 @@ function getStyles() {
     .ek-field { width: 100%; padding: 13px 16px; background: rgba(0,0,0,0.5); border: 1px solid #2a2016; border-radius: 10px; color: var(--ek-text); font-family: 'Nunito', sans-serif; font-size: 15px; font-weight: 600; outline: none; transition: border-color .2s, box-shadow .2s; }
     .ek-field:focus { border-color: var(--ek-fire); box-shadow: 0 0 0 3px rgba(255,90,31,0.15); }
     .ek-field::placeholder { color: #444; }
+    .ek-field-locked { opacity: .5; cursor: not-allowed; color: #a99; background: rgba(20,20,25,0.6); }
     .ek-field-code { font-family: 'DM Mono', monospace; letter-spacing: 4px; text-transform: uppercase; flex: 1; }
     .ek-form-row { display: flex; gap: 10px; flex-wrap: wrap; }
     .ek-join-group { flex: 1; display: flex; gap: 8px; min-width: 240px; }
