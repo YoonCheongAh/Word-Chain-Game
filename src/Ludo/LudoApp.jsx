@@ -385,6 +385,13 @@ export default function LudoApp() {
     // ── effect #3: special-move banner ──
     const [specialFx, setSpecialFx] = useState(null); // {text}
 
+    // Dice value shown on the 3D die. Kept in a local state so the rolled
+    // number STAYS visible while the player decides + moves, and only flips
+    // back to 1 (default face) after the move has finished — not the instant
+    // the pawn is clicked. Shared `dice` already lives in Firebase, so every
+    // player sees the exact same rolled number.
+    const [shownDice, setShownDice] = useState(null);
+
     const boardWrapRef = useRef(null);
     const prevTurnRef = useRef(null);
     const prevCompleteRef = useRef(0);
@@ -479,6 +486,26 @@ export default function LudoApp() {
             playSound("special");
         }
     }, [JSON.stringify(dice)]);
+
+    /* Hold the rolled dice on screen until the move has finished, then flip
+     * back to the neutral face (1). `dice` in Firebase is cleared the moment
+     * movePawn/handleNoMoves runs, so without this the die would reset to 1
+     * while the pawn is still animating. We latch the last rolled value, and
+     * only release it a beat after the move phase ends. Since `dice` is shared
+     * state, all clients latch the same value and see the same number. */
+    useEffect(() => {
+        if (dice.length > 0 && !rolling) {
+            setShownDice(dice[0]);
+        }
+    }, [JSON.stringify(dice), rolling]);
+
+    /* Once the move is done (dice cleared → back to roll phase) and we have a
+     * latched value, wait for the move animation then reset to the default. */
+    useEffect(() => {
+        if (dice.length > 0 || shownDice == null) return;
+        const t = setTimeout(() => setShownDice(null), 550);
+        return () => clearTimeout(t);
+    }, [JSON.stringify(dice), shownDice]);
 
     /* Auto-pass when no legal moves.
      * FIXED: previously this always called passTurnFirebase, which handed
@@ -998,7 +1025,7 @@ export default function LudoApp() {
 
                 {/* Dice panel */}
                 <div className="ludo-dice-panel">
-                    <Dice3D value={dice[0]} rolling={rolling} />
+                    <Dice3D value={shownDice != null ? shownDice : dice[0]} rolling={rolling} />
                     <button className="ludo-roll-btn"
                         disabled={!isMyTurn || phase !== "roll" || rolling}
                         onClick={handleRoll}>

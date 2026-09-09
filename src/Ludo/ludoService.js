@@ -58,15 +58,9 @@ export const PATH = {
     b: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 74, 75, 76, 77, 78, 79],
 };
 
-// Star/safe squares where pawns cannot be captured
-// The common loop here has 56 squares (14 per side), with entry points for
-// r/g/y/b at 0/14/28/42 (see PATH below). Each entry square is safe, plus the
-// traditional "star" square 8 steps after each entry. The previous set
-// ([0, 8, 13, 21, 26, 34, 39, 47, 52]) was copied from a classic 52-square
-// board and only lined up correctly for red — every other color's entry
-// square (14, 28, 42) was missing, so pawns from g/y/b could be captured the
-// instant they left the yard.
-export const SAFE_SQUARES = new Set([0, 8, 14, 22, 28, 36, 42, 50]);
+// Star/safe squares have been REMOVED. Capture is allowed on every square of
+// the track (including the star squares) and on the entry square.
+export const SAFE_SQUARES = new Set([]);
 
 // ─── PURE GAME LOGIC ─────────────────────────────────────────────────────────
 
@@ -156,6 +150,10 @@ export function calcAvailableMoves(pawns, dice, color, cachePath) {
                 // own pawn blocks the path
                 blocked = true;
                 break;
+            }
+            // enemy on a safe square in the middle → jump over (safe only protects from capture)
+            if (i < newIdx && SAFE_SQUARES.has(sq)) {
+                continue;
             }
             if (i < newIdx) {
                 // enemy in the middle → cannot jump over
@@ -287,21 +285,25 @@ export async function movePawn(roomId, role, move) {
 
     const updates = {};
 
-    // Handle capture
-    if (move.captureId && !SAFE_SQUARES.has(pawn.position)) {
-        const occupant = ludo.cachePath?.[pawn.position]; // {id, color, slot} of pawn being captured
-        if (occupant && occupant.slot !== role) {
-            const slot = occupant.slot;
-            const slotPd = ludo.playerData[slot];
-            const capIdx = slotPd.pawns.findIndex(p => p.id === occupant.id);
-            if (capIdx >= 0) {
-                const capPawn = { ...slotPd.pawns[capIdx] };
-                capPawn.active = false;
-                capPawn.position = START_POSITIONS[slotPd.color][capPawn.id - 1];
+    // Handle capture — derived from the AUTHORITATIVE fresh cachePath (read from
+    // Firebase in this function), not from the UI-computed move.captureId.
+    // The UI's calcAvailableMoves may be based on a slightly stale cache snapshot,
+    // which would otherwise cause a legal capture to be silently skipped even
+    // though the player landed exactly on the enemy square. Recomputing here
+    // guarantees a capture always happens when the fresh board state says so.
+    const landingPos = pawn.position;
+    const occupant = ludo.cachePath?.[landingPos]; // {id, color, slot} of pawn being captured
+    if (occupant && occupant.slot !== role && !SAFE_SQUARES.has(landingPos)) {
+        const slot = occupant.slot;
+        const slotPd = ludo.playerData[slot];
+        const capIdx = slotPd.pawns.findIndex(p => p.id === occupant.id);
+        if (capIdx >= 0) {
+            const capPawn = { ...slotPd.pawns[capIdx] };
+            capPawn.active = false;
+            capPawn.position = START_POSITIONS[slotPd.color][capPawn.id - 1];
 
-                const newSlotPawns = slotPd.pawns.map((p, i) => (i === capIdx ? capPawn : p));
-                updates[`ludo/playerData/${slot}/pawns`] = newSlotPawns;
-            }
+            const newSlotPawns = slotPd.pawns.map((p, i) => (i === capIdx ? capPawn : p));
+            updates[`ludo/playerData/${slot}/pawns`] = newSlotPawns;
         }
     }
 
