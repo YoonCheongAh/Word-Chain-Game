@@ -14,13 +14,17 @@ import {
   CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse, placeImplodingKitten,
 } from './ExplodingKittenService';
 
-// ── Inject styles ONCE at module level, not in useEffect ──
+// ── Inject styles at module level, not in useEffect ──
+// Always (re)write textContent so HMR/dev edits pick up the freshest CSS.
 const STYLE_ID = 'ek-styles';
-if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
-  const style = document.createElement('style');
-  style.id = STYLE_ID;
+if (typeof document !== 'undefined') {
+  let style = document.getElementById(STYLE_ID);
+  if (!style) {
+    style = document.createElement('style');
+    style.id = STYLE_ID;
+    document.head.appendChild(style);
+  }
   style.textContent = getStyles();
-  document.head.appendChild(style);
 }
 
 // ── Static arrays moved outside components ──
@@ -202,15 +206,9 @@ export default function ExplodingKitten() {
       return;
     }
 
-    // Action card: click once to select (hover glow), click again to play
-    setSelectedCards(prev => {
-      if (prev.some(c => c.id === card.id)) {
-        // second click on selected card → play it
-        playCard(roomId, myRole, card.id, {});
-        return [];
-      }
-      return [card];
-    });
+    // Action card: play immediately on first click
+    playCard(roomId, myRole, card.id, {});
+    setSelectedCards([]);
   }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast]);
 
   const handlePlaySelected = useCallback(() => {
@@ -1010,7 +1008,7 @@ function GameBoardScreen({
                     isSelected={isSelected}
                     isNopeable={isNopeable}
                     isNew={isNew}
-                    isDisabled={!myTurn && !isNopeable}
+                    isDisabled={(!myTurn || phase !== 'play') && !isNopeable}
                     zIndex={isSelected ? 50 : idx}
                     onClick={onCardClick}
                     isActionCardSelected={isSelected && !CAT_CARD_TYPES.has(card.type)}
@@ -1102,12 +1100,54 @@ function GameBoardScreen({
 /* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
 const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
   const handleClick = useCallback(() => onClick(card), [onClick, card]);
+
+  const cardRef = useRef(null);
+  const tiltRaf = useRef(0);
+  const lastMove = useRef(null);
+
+  const updateTilt = useCallback((e, el) => {
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const nx = (e.clientX - rect.left) / rect.width - 0.5;
+    const ny = (e.clientY - rect.top) / rect.height - 0.5;
+    el.style.setProperty('--rx', (ny * 16).toFixed(2) + 'deg');
+    el.style.setProperty('--ry', (-nx * 20).toFixed(2) + 'deg');
+    el.style.setProperty('--gx', (50 + nx * 80).toFixed(1) + '%');
+    el.style.setProperty('--gy', (50 + ny * 80).toFixed(1) + '%');
+  }, []);
+
+  const handleMouseMove = useCallback((e) => {
+    lastMove.current = e;
+    if (tiltRaf.current) return;
+    tiltRaf.current = requestAnimationFrame(() => {
+      tiltRaf.current = 0;
+      const ev = lastMove.current;
+      const el = cardRef.current;
+      if (ev && el) updateTilt(ev, el);
+    });
+  }, [updateTilt]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (tiltRaf.current) { cancelAnimationFrame(tiltRaf.current); tiltRaf.current = 0; }
+    lastMove.current = null;
+    const el = cardRef.current;
+    if (el) {
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+      el.style.setProperty('--gx', '50%');
+      el.style.setProperty('--gy', '50%');
+    }
+  }, []);
+
   return (
     <div
+      ref={cardRef}
       className={`ek-hand-card${isSelected ? ' ek-hand-card-selected' : ''}${isDisabled ? ' ek-hand-card-disabled' : ''}${isNopeable ? ' ek-hand-card-nopeable' : ''}${isNew ? ' ek-hand-card-new' : ''}${draggable ? ' ek-hand-card-draggable' : ''}${dragOver ? ' ek-hand-card-drop-target' : ''}`}
       style={{ '--card-color': meta?.color || '#888', zIndex }}
       draggable={draggable || undefined}
       onClick={handleClick}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
       onDragStart={onDragStart}
       onDragOver={onDragOverCard}
       onDrop={onDropCard}
@@ -1120,6 +1160,7 @@ const HandCard = memo(function HandCard({ card, meta, isSelected, isNopeable, is
         <img src={card.image || ''} alt={meta?.label || card.type} className="ek-card-img" onError={e => { e.target.style.display = 'none'; }} />
         <div className="ek-card-label-bar">{meta?.label || card.type}</div>
       </div>
+      <div className="ek-card-glare" aria-hidden="true" />
       {isSelected && !isActionCardSelected && (
         <div className="ek-card-selected-badge">✓</div>
       )}
@@ -1876,8 +1917,12 @@ function getStyles() {
     .ek-target-avatar { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,144,32,0.2); border: 2px solid var(--ek-ember); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: var(--ek-ember); flex-shrink: 0; }
     .ek-target-count { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; margin-left: auto; }
     .ek-favor-hand { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 4px; }
-    .ek-favor-card { width: var(--ek-card-w); height: var(--ek-card-h); border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); cursor: pointer; position: relative; transition: transform .18s, border-color .18s; flex-shrink: 0; }
-    .ek-favor-card:hover { transform: translateY(-8px) scale(1.06); border-color: var(--ek-ember); }
+    .ek-favor-card { width: var(--ek-card-w); height: var(--ek-card-h); border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1); cursor: pointer; position: relative; transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .22s; flex-shrink: 0; }
+    .ek-favor-card:hover {
+      transform: translateY(-12px) scale(1.08);
+      border-color: color-mix(in srgb, var(--card-color, var(--ek-ember)) 90%, #fff);
+      box-shadow: 0 18px 34px rgba(0,0,0,0.55), 0 0 0 2px var(--card-color, var(--ek-ember)), 0 0 20px color-mix(in srgb, var(--card-color, var(--ek-ember)) 50%, transparent);
+    }
     .ek-opp-mini-cards { display: flex; gap: 2px; }
     .ek-opp-mini-card { font-size: 14px; }
 
@@ -1906,7 +1951,8 @@ function getStyles() {
       flex-shrink: 0;
       cursor: pointer;
       position: relative;
-      transition: transform .18s cubic-bezier(.34,1.56,.64,1), border-color .18s, box-shadow .18s;
+      transform-style: preserve-3d;
+      transition: transform .38s cubic-bezier(.25,.6,.35,1), border-color .25s ease, box-shadow .3s ease, filter .38s cubic-bezier(.25,.6,.35,1), opacity .25s ease;
       /* GPU compositing hint for animated cards */
       will-change: transform;
     }
@@ -1952,10 +1998,54 @@ function getStyles() {
       100%{ transform: scaleX(1); opacity: 1; }
     }
 
-    .ek-hand-card:hover:not(.ek-hand-card-disabled):not(.ek-hand-card-new) {
-      transform: translateY(-18px) scale(1.08);
-      border-color: var(--card-color, var(--ek-ember));
-      box-shadow: 0 16px 36px rgba(0,0,0,0.6), 0 0 0 2px var(--card-color, var(--ek-ember));
+    .ek-hand-card::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; top: -52px; bottom: 0;
+      z-index: 0;
+      border-radius: 12px;
+    }
+
+    .ek-hand-card:hover {
+      z-index: 55 !important;
+      transform:
+        translateY(-30px)
+        rotateX(var(--rx, 0deg))
+        rotateY(var(--ry, 0deg))
+        scale(1.10) !important;
+      border-color: color-mix(in srgb, var(--card-color, var(--ek-ember)) 90%, #fff);
+      box-shadow:
+        0 28px 48px rgba(0,0,0,0.6),
+        0 14px 26px rgba(0,0,0,0.35),
+        0 0 22px color-mix(in srgb, var(--card-color, var(--ek-ember)) 55%, transparent),
+        0 0 0 2px var(--card-color, var(--ek-ember));
+      filter: brightness(1.09) saturate(1.06);
+      transition: transform .25s cubic-bezier(.34,1.56,.64,1), border-color .18s ease, box-shadow .25s cubic-bezier(.34,1.56,.64,1), filter .25s cubic-bezier(.34,1.56,.64,1);
+    }
+
+    .ek-card-glare {
+      position: absolute; inset: 0; border-radius: 12px;
+      background:
+        radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.10) 32%, transparent 55%),
+        radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), color-mix(in srgb, var(--card-color, var(--ek-ember)) 38%, transparent) 0%, transparent 60%);
+      opacity: 0; pointer-events: none; z-index: 12;
+      transition: opacity .3s ease;
+      will-change: opacity;
+    }
+    .ek-hand-card:hover .ek-card-glare {
+      opacity: 1;
+    }
+
+    @media (hover: none) {
+      .ek-hand-card:hover,
+      .ek-favor-card:hover,
+      .ek-steal-card:hover,
+      .ek-pile-clickable:hover {
+        z-index: auto;
+        transform: none !important;
+        filter: none !important;
+      }
+      .ek-card-glare { display: none; }
     }
     .ek-hand-card-selected:not(.ek-hand-card-new) {
       transform: translateY(-26px) scale(1.1) !important;
@@ -2062,7 +2152,7 @@ function getStyles() {
     .ek-hand-and-actions { display: flex; flex-direction: row; align-items: flex-end; gap: 0; width: 100%; justify-content: center; overflow: visible; padding: 14px 16px 8px; scrollbar-width: none; -ms-overflow-style: none; }
     .ek-hand-and-actions::-webkit-scrollbar { display: none; }
     
-    .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 10px; padding: 0; flex: 1; min-height: calc(var(--ek-card-h) + 20px); align-items: flex-end; }
+    .ek-hand-fan { display: flex; flex-direction: row; justify-content: center; gap: 10px; padding: 0; flex: 1; min-height: calc(var(--ek-card-h) + 20px); align-items: flex-end; perspective: 900px; }
 
     .ek-action-btn { padding: 16px 24px; border: none; border-radius: 12px; font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 800; cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: .6px; white-space: nowrap; }
     .ek-action-play { background: linear-gradient(130deg, #c02800, var(--ek-fire)); color: #fff; box-shadow: 0 6px 24px rgba(255,90,31,0.5); }
