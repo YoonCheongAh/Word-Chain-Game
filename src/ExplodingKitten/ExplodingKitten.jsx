@@ -1692,7 +1692,7 @@ function TripleStealPanel({ players, myRole, onSteal }) {
   if (chosenTarget) {
     const targetPlayer = players[chosenTarget];
     return (
-      <div className="ek-panel-inner">
+      <div className="ek-panel-inner ek-panel-wide">
         <div className="ek-panel-icon">🎯</div>
         <h3 className="ek-panel-title">Choose a card to steal</h3>
         <p className="ek-panel-sub">From {targetPlayer?.name} — pick any card type. If they have it, it's yours!</p>
@@ -2270,11 +2270,11 @@ function getStyles() {
     .ek-steal-card:hover.ek-steal-card-marked, .ek-steal-card-hover.ek-steal-card-marked { box-shadow: 0 8px 22px rgba(255,215,0,0.45), 0 0 0 2px rgba(255,215,0,0.8); }
     .ek-steal-card-num { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.55); }
 
-    .ek-triple-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; max-height: 45vh; overflow-y: auto; padding: 4px 0; }
-    .ek-triple-type-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 2px solid rgba(255,255,255,0.12); border-radius: 10px; background: rgba(255,255,255,0.06); cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+    .ek-triple-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; max-height: 55vh; overflow-y: auto; padding: 6px 0; }
+    .ek-triple-type-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border: 2px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(255,255,255,0.06); cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
     .ek-triple-type-btn:hover { border-color: var(--ek-ember); background: rgba(255,90,31,0.12); transform: translateY(-3px); }
-    .ek-triple-type-img { width: 56px; height: 78px; object-fit: cover; border-radius: 6px; pointer-events: none; }
-    .ek-triple-type-label { font-size: 10px; color: rgba(255,255,255,0.75); text-align: center; line-height: 1.2; }
+    .ek-triple-type-img { width: 68px; height: 95px; object-fit: cover; border-radius: 8px; pointer-events: none; }
+    .ek-triple-type-label { font-size: 11px; color: rgba(255,255,255,0.75); text-align: center; line-height: 1.2; }
 
     /* ══ CARD FLIP ANIMATION ══ */
     .ek-hand-card {

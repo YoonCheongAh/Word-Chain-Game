@@ -251,23 +251,22 @@ function buildBaseDeck(playerCount) {
       deck.push(createCard(type, i));
     }
   };
-  // Action cards — scaled to player count
+
+  // Action cards — balanced scaling per player count
   add(CARD_TYPES.ATTACK, playerCount);
-  add(CARD_TYPES.SKIP, playerCount);
+  add(CARD_TYPES.SKIP, Math.min(playerCount, Math.ceil(playerCount * 0.8) + 1));
   add(CARD_TYPES.FAVOR, playerCount);
-  add(CARD_TYPES.SHUFFLE, Math.max(4, playerCount - 1));
-  add(CARD_TYPES.SEE_THE_FUTURE, playerCount);
-  add(CARD_TYPES.ALTER_THE_FUTURE, Math.max(2, Math.floor(playerCount / 2)));
-  add(CARD_TYPES.NOPE, playerCount + 1);
+  add(CARD_TYPES.SHUFFLE, Math.max(4, Math.ceil(playerCount * 0.8)));
+  add(CARD_TYPES.SEE_THE_FUTURE, Math.max(3, Math.ceil(playerCount * 1.0)));
+  add(CARD_TYPES.ALTER_THE_FUTURE, Math.max(2, Math.ceil(playerCount / 2)));
+  add(CARD_TYPES.NOPE, Math.max(4, Math.ceil(playerCount * 1.0) + 2));
   add(CARD_TYPES.DRAW_FROM_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
   add(CARD_TYPES.SWAP_TOP_BOTTOM, Math.max(1, Math.floor(playerCount / 2)));
   add(CARD_TYPES.CATOMIC_BOMB, 1);
-  add(CARD_TYPES.MARK, 2); // Mark — always 2 cards in the deck
-  // Cat cards — 4 × playerCount spread equally across the 5 types
-  // Each type gets floor(total/5); the remainder is distributed to the first types
-  const totalCats = 4 * playerCount;
-  const basePerType = Math.floor(totalCats / 5);
-  const remainder = totalCats % 5;
+  add(CARD_TYPES.MARK, Math.max(2, Math.ceil(playerCount / 2) + 1));
+
+  // Cat cards — equal distribution, minimum 3 per type so pairs/triples are viable
+  const catsPerType = Math.max(3, Math.round(playerCount * 0.8));
   const catTypes = [
     CARD_TYPES.TACOCAT,
     CARD_TYPES.CATTERMELON,
@@ -275,8 +274,29 @@ function buildBaseDeck(playerCount) {
     CARD_TYPES.RAINBOW_CAT,
     CARD_TYPES.BEARD_CAT,
   ];
-  catTypes.forEach((type, i) => add(type, basePerType + (i < remainder ? 1 : 0)));
+  catTypes.forEach(type => add(type, catsPerType));
+
   return deck;
+}
+
+export function logDeckComposition(playerCount) {
+  const deck = buildBaseDeck(playerCount);
+  const counts = {};
+  deck.forEach(c => { counts[c.type] = (counts[c.type] || 0) + 1; });
+
+  console.log(`\n=== Deck composition for ${playerCount} players ===`);
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  sorted.forEach(([type, count]) => {
+    console.log(`  ${type.padEnd(25)} ${count}`);
+  });
+  console.log(`  ${"─".repeat(35)}`);
+  console.log(`  TOTAL (base deck)        ${deck.length}`);
+  console.log(`  + Defuse (p+3)           ${playerCount + 3}`);
+  console.log(`  + Exploding Kitten       ${playerCount}`);
+  console.log(`  + Imploding Kitten       1`);
+  console.log(`  + Streaking Kitten       1`);
+  console.log(`  GRAND TOTAL              ${deck.length + playerCount + 3 + playerCount + 2}`);
+  console.log(`================================================\n`);
 }
 
 function shuffle(arr) {
