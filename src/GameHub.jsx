@@ -40,6 +40,7 @@ const HUB_STYLES = `
 
   /* ── Hub root ── */
   .gh-root {
+    width: 100%;
     min-height: 100vh;
     background: var(--ink);
     position: relative;

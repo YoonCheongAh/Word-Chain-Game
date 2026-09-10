@@ -370,6 +370,12 @@ function buildResolutionUpdates(pending, game) {
         "game/nopeWindow": null,
         "game/nopeChain": [],
       };
+    case "triple":
+      return {
+        "game/phase": "triple_target",
+        "game/nopeWindow": null,
+        "game/nopeChain": [],
+      };
     case "trade_cats": {
       const updates = {
         "game/phase": "play",
@@ -614,6 +620,55 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
       await update(ref(db, `rooms/${roomId}`), {
         [`players/${playerRole}/hand`]: finalHand,
         "game/discardPile": pairDiscard,
+        "game/pendingAction": pendingObj,
+        ...buildResolutionUpdates(pendingObj, game),
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    }
+    return;
+  }
+
+  // ── TRIPLE CAT CARDS ──
+  if (CAT_CARD_TYPES.has(card.type) && extraData.isTriple) {
+    const tripleSiblings = hand.filter(c => c.type === card.type && c.id !== cardId);
+    if (tripleSiblings.length < 2) return;
+    const siblingA = tripleSiblings[0];
+    const siblingB = tripleSiblings[1];
+    const finalHand = newHand.filter(c => c.id !== siblingA.id && c.id !== siblingB.id);
+    const tripleDiscard = [...(game.discardPile || []), card, siblingA, siblingB];
+    const logMsg = `${players[playerRole].name} played 3x ${CARD_META[card.type]?.label ?? card.type} — steal any card!`;
+
+    const pendingObj = {
+      type: "triple",
+      by: playerRole,
+      cardType: card.type,
+      savedAttackStack: game.attackStack || 0,
+      savedTurn: game.turn,
+      nopeWindowPhase: "triple_target",
+    };
+
+    const updatedPlayers = { ...players, [playerRole]: { ...players[playerRole], hand: finalHand } };
+    const canNope = anyPlayerHasNope(updatedPlayers, playerRole);
+
+    if (canNope) {
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: finalHand,
+        "game/discardPile": tripleDiscard,
+        "game/phase": "triple_target",
+        "game/nopeChain": [],
+        "game/nopeWindow": {
+          open: true,
+          expiresAt: Date.now() + 5000,
+          pendingType: "triple",
+          isCurrentlyNoped: false,
+        },
+        "game/pendingAction": pendingObj,
+        "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+      });
+    } else {
+      await update(ref(db, `rooms/${roomId}`), {
+        [`players/${playerRole}/hand`]: finalHand,
+        "game/discardPile": tripleDiscard,
         "game/pendingAction": pendingObj,
         ...buildResolutionUpdates(pendingObj, game),
         "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
@@ -1736,6 +1791,48 @@ export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = n
     "game/attackStack": game.attackStack || 0,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
   });
+}
+
+export async function stealTripleCard(roomId, thiefRole, targetRole, cardType) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  const room = snap.val();
+  const { game, players } = room;
+
+  if (!players[targetRole] || players[targetRole].alive === false) return;
+
+  const targetHand = [...(players[targetRole].hand || [])];
+  const matchIdx = targetHand.findIndex(c => c.type === cardType);
+  const thiefHand = [...(players[thiefRole].hand || [])];
+
+  if (matchIdx !== -1) {
+    const stolen = targetHand[matchIdx];
+    const newTargetHand = targetHand.filter((_, i) => i !== matchIdx);
+    const newThiefHand = [...thiefHand, stolen];
+
+    const logMsg = `${players[thiefRole].name} stole ${CARD_META[cardType]?.label ?? cardType} from ${players[targetRole].name}!`;
+
+    await update(ref(db, `rooms/${roomId}`), {
+      [`players/${thiefRole}/hand`]: newThiefHand,
+      [`players/${targetRole}/hand`]: newTargetHand,
+      "game/phase": "play",
+      "game/pendingAction": null,
+      "game/nopeWindow": null,
+      "game/turn": thiefRole,
+      "game/attackStack": game.attackStack || 0,
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+  } else {
+    const logMsg = `${players[thiefRole].name} tried to steal ${CARD_META[cardType]?.label ?? cardType} from ${players[targetRole].name}, but they didn't have one! 3 cats wasted.`;
+
+    await update(ref(db, `rooms/${roomId}`), {
+      "game/phase": "play",
+      "game/pendingAction": null,
+      "game/nopeWindow": null,
+      "game/turn": thiefRole,
+      "game/attackStack": game.attackStack || 0,
+      "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
+    });
+  }
 }
 
 export async function closeSeeTheFuture(roomId) {

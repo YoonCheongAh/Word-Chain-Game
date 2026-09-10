@@ -9,7 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import { SoundManager } from './ExplodingKittenSound';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
-  giveFavorCard, stealPairCard, closeSeeTheFuture, requestRematch,
+  giveFavorCard, stealPairCard, stealTripleCard, closeSeeTheFuture, requestRematch,
   resolveNopeWindow, reorderAlterTheFuture, performMark,
   CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse, placeImplodingKitten,
 } from './ExplodingKittenService';
@@ -187,42 +187,68 @@ export default function ExplodingKitten() {
     if (phase !== 'play') { showToast('Finish the current action first!'); return; }
 
     if (CAT_CARD_TYPES.has(card.type)) {
-      setSelectedCards(prev => {
-        // toggle off if already selected
-        if (prev.some(c => c.id === card.id)) return prev.filter(c => c.id !== card.id);
-        const sameType = prev.find(c => c.type === card.type);
-        if (sameType) {
-          // pair: only allow a 2nd of the same type when starting fresh
-          if (prev.length === 1) {
-            return [...prev, card];
-          }
-          showToast(`Can't add a 3rd ${CARD_META[card.type]?.label} — trade needs 5 different cats`);
-          return prev;
-        }
-        if (prev.length >= 5) {
-          showToast('Already selected 5 different cats');
-          return prev;
-        }
-        return [...prev, card];
-      });
+      const inSelection = selectedCards.some(c => c.id === card.id);
+      if (!inSelection) {
+        showToast('Right-click cat cards to pre-select, then left-click to play');
+        return;
+      }
+      const sameTypeCount = selectedCards.filter(c => c.type === card.type).length;
+      if (sameTypeCount === 3) {
+        playCard(roomId, myRole, card.id, { isTriple: true });
+        setSelectedCards([]);
+        return;
+      }
+      if (sameTypeCount === 2) {
+        playCard(roomId, myRole, card.id, { isPair: true });
+        setSelectedCards([]);
+        return;
+      }
+      const uniqueTypes = new Set(selectedCards.map(c => c.type));
+      if (selectedCards.length === 5 && uniqueTypes.size === 5) {
+        tradeFiveCatsForDefuse(roomId, myRole, selectedCards.map(c => c.id));
+        setSelectedCards([]);
+        SoundManager.play('shuffle');
+        return;
+      }
+      showToast('Select 2-3 same-type cats, or 5 different cats to trade');
       return;
     }
 
     // Action card: play immediately on first click
     playCard(roomId, myRole, card.id, {});
     setSelectedCards([]);
-  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, showToast]);
+  }, [roomId, myRole, myTurn, phase, nopeWindow?.open, selectedCards, showToast]);
+
+  const handlePreSelect = useCallback((card) => {
+    if (!CAT_CARD_TYPES.has(card.type)) return;
+    if (!myTurn || phase !== 'play') return;
+    setSelectedCards(prev => {
+      if (prev.some(c => c.id === card.id)) return prev.filter(c => c.id !== card.id);
+      const sameType = prev.find(c => c.type === card.type);
+      if (sameType) {
+        if (prev.length <= 2) return [...prev, card];
+        return prev;
+      }
+      if (prev.length >= 5) return prev;
+      return [...prev, card];
+    });
+  }, [myTurn, phase]);
 
   const handlePlaySelected = useCallback(() => {
     const card = selectedCards[0];
     if (!card) return;
     if (CAT_CARD_TYPES.has(card.type)) {
+      if (selectedCards.length === 3 && selectedCards.every(c => c.type === card.type)) {
+        playCard(roomId, myRole, card.id, { isTriple: true });
+        setSelectedCards([]);
+        return;
+      }
       if (selectedCards.length === 2 && selectedCards[0].type === selectedCards[1].type) {
         playCard(roomId, myRole, card.id, { isPair: true });
         setSelectedCards([]);
         return;
       }
-      showToast(`Select 5 different cats to Trade for a Defuse, or 2 same-type cats to play as pair!`);
+      showToast(`Select 2 same-type for Pair, 3 same-type for Triple, or 5 different cats to Trade`);
       return;
     }
     playCard(roomId, myRole, card.id, {});
@@ -245,7 +271,18 @@ export default function ExplodingKitten() {
 
   const handlePlaceBomb = useCallback((pos) => placeBombAfterDefuse(roomId, myRole, pos), [roomId, myRole]);
   const handleGiveCard = useCallback((cId) => giveFavorCard(roomId, myRole, cId), [roomId, myRole]);
-  const handleStealCard = useCallback((target, cardIndex) => stealPairCard(roomId, myRole, target, cardIndex), [roomId, myRole]);
+  const handleStealCard = useCallback((target, cardIndex) => {
+    update(ref(db, `rooms/${roomId}`), {
+      'game/pendingAction': { ...pending, target },
+    });
+    stealPairCard(roomId, myRole, target, cardIndex);
+  }, [roomId, myRole, pending]);
+  const handleStealTriple = useCallback((target, cardType) => {
+    update(ref(db, `rooms/${roomId}`), {
+      'game/pendingAction': { ...pending, target },
+    });
+    stealTripleCard(roomId, myRole, target, cardType);
+  }, [roomId, myRole, pending]);
   const handleChooseFavorTarget = useCallback((targetRole) => playCard(roomId, myRole, pending?.favorCardId || '', { targetRole }), [roomId, myRole, pending?.favorCardId]);
   const handleCloseFuture = useCallback(() => closeSeeTheFuture(roomId), [roomId]);
   const handleReorderAlterFuture = useCallback((reorderedCards) => reorderAlterTheFuture(roomId, myRole, reorderedCards), [roomId, myRole]);
@@ -276,11 +313,13 @@ export default function ExplodingKitten() {
         nopeWindow={nopeWindow}
         selectedCards={selectedCards}
         onCardClick={handleCardClick}
+        onPreSelect={handlePreSelect}
         onPlaySelected={handlePlaySelected}
         onDrawCard={handleDrawCard}
         onPlaceBomb={handlePlaceBomb}
         onGiveCard={handleGiveCard}
         onStealCard={handleStealCard}
+        onStealTriple={handleStealTriple}
         onChooseFavorTarget={handleChooseFavorTarget}
         onSelectFavorTarget={handleSelectFavorTarget}
         onPlaceImploding={handlePlaceImploding}
@@ -540,8 +579,8 @@ const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, card
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
-  selectedCards, setSelectedCards, onCardClick, onPlaySelected, onDrawCard,
-  onPlaceBomb, onGiveCard, onStealCard, onSelectFavorTarget, onChooseFavorTarget,
+  selectedCards, setSelectedCards, onCardClick, onPreSelect, onPlaySelected, onDrawCard,
+  onPlaceBomb, onGiveCard, onStealCard, onStealTriple, onSelectFavorTarget, onChooseFavorTarget,
   onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId, onMarkTarget,
 }) {
   const gameOver = game?.winner;
@@ -551,6 +590,9 @@ function GameBoardScreen({
   const log = game?.log || [];
   const aliveCount = Object.values(players).filter(p => p?.alive !== false).length;
   const isSpectating = players[myRole]?.alive === false && !gameOver;
+
+  const drawPileRef = useRef(null);
+  const handFanRef = useRef(null);
 
   const [newCardIds, setNewCardIds] = useState(new Set());
   const prevHandIdsRef = useRef(new Set());
@@ -626,6 +668,34 @@ function GameBoardScreen({
           });
         }, 900 + i * 80);
       });
+
+      /* ── Steal fly: card from opponent → hand (favor / pair) ── */
+      const sourceRole = stealFlySourceRef.current;
+      if (sourceRole && !drawFly.active && !stealFly.active) {
+        stealFlySourceRef.current = null;
+        const oppEl = document.querySelector(`[data-role="${sourceRole}"]`);
+        const handEl = handFanRef.current;
+        if (oppEl && handEl) {
+          const or2 = oppEl.getBoundingClientRect();
+          const hr = handEl.getBoundingClientRect();
+          const cs = getComputedStyle(document.documentElement);
+          const pileW = parseFloat(cs.getPropertyValue('--ek-pile-w')) || 116;
+          const pileH = parseFloat(cs.getPropertyValue('--ek-pile-h')) || 162;
+          const cardW = parseFloat(cs.getPropertyValue('--ek-card-w')) || 208;
+          const cardH = parseFloat(cs.getPropertyValue('--ek-card-h')) || 293;
+          const sx = or2.left + or2.width / 2 - pileW / 2;
+          const sy = or2.top + or2.height / 2 - pileH / 2;
+          const n = myHand.length;
+          const gap = 10;
+          const handContentW = n > 0 ? n * cardW + (n - 1) * gap : 0;
+          const handCenterX = hr.left + hr.width / 2;
+          const handEndX = handCenterX + handContentW / 2 + gap + cardW / 2;
+          const handTopY = hr.top + 10;
+          const tx = handEndX - cardW / 2;
+          const ty = handTopY;
+          setStealFly({ active: true, x: sx, y: sy, dx: tx - sx, dy: ty - sy, phase: 'lift', pileW, pileH, cardW, cardH });
+        }
+      }
     }
     prevHandIdsRef.current = currentIds;
   }, [myHand]);
@@ -694,22 +764,123 @@ function GameBoardScreen({
     prevNopedRef.current = isNoped;
   }, [nopeWindow?.isCurrentlyNoped]);
 
-  const [drawAnim, setDrawAnim] = useState(0);
+  const [drawFly, setDrawFly] = useState({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
+  const drawFlyBusyRef = useRef(false);
+  const drawFlyTimersRef = useRef([]);
   const [handOrder, setHandOrder] = useState(null);
 
-  const prevDrawCountRef = useRef(drawPile.length);
-  const drawTimerRef = useRef(null);
+  /* ── Draw-card fly animation: lift → fly → snap ── */
+  const onDrawCardRef = useRef(onDrawCard);
+  onDrawCardRef.current = onDrawCard;
 
   useEffect(() => {
-    const prev = prevDrawCountRef.current;
-    if (drawPile.length < prev) {
-      setDrawAnim(Date.now());
-      if (drawTimerRef.current) clearTimeout(drawTimerRef.current);
-      drawTimerRef.current = setTimeout(() => setDrawAnim(0), 650);
+    if (drawFly.phase !== 'lift' || !drawFly.active) return;
+    const t = setTimeout(() => setDrawFly(f => ({ ...f, phase: 'fly' })), 120);
+    return () => clearTimeout(t);
+  }, [drawFly.phase, drawFly.active]);
+
+  useEffect(() => {
+    if (drawFly.phase !== 'fly' || !drawFly.active) return;
+    onDrawCardRef.current?.();
+    const t = setTimeout(() => setDrawFly(f => ({ ...f, phase: 'snap' })), 380);
+    return () => clearTimeout(t);
+  }, [drawFly.phase, drawFly.active]);
+
+  useEffect(() => {
+    if (drawFly.phase !== 'snap' || !drawFly.active) return;
+    const t = setTimeout(() => {
+      setDrawFly({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
+      drawFlyBusyRef.current = false;
+    }, 150);
+    return () => clearTimeout(t);
+  }, [drawFly.phase, drawFly.active]);
+
+  useEffect(() => () => {
+    drawFlyTimersRef.current.forEach(clearTimeout);
+    drawFlyTimersRef.current = [];
+  }, []);
+
+  /* ── Cancel draw-fly immediately when bomb/imploding is revealed ── */
+  useEffect(() => {
+    if (drawFly.active && (phase === 'defuse' || phase === 'place_imploding')) {
+      drawFlyTimersRef.current.forEach(clearTimeout);
+      drawFlyTimersRef.current = [];
+      setDrawFly({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
+      drawFlyBusyRef.current = false;
     }
-    prevDrawCountRef.current = drawPile.length;
-    return () => clearTimeout(drawTimerRef.current);
-  }, [drawPile.length]);
+  }, [phase, drawFly.active]);
+
+  /* ── Steal-fly: card flies from opponent → hand (favor / pair steal) ── */
+  const [stealFly, setStealFly] = useState({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
+  const stealFlySourceRef = useRef(null);
+
+  useEffect(() => {
+    if (stealFly.phase !== 'lift' || !stealFly.active) return;
+    const t = setTimeout(() => setStealFly(f => ({ ...f, phase: 'fly' })), 120);
+    return () => clearTimeout(t);
+  }, [stealFly.phase, stealFly.active]);
+
+  useEffect(() => {
+    if (stealFly.phase !== 'fly' || !stealFly.active) return;
+    const t = setTimeout(() => setStealFly(f => ({ ...f, phase: 'snap' })), 380);
+    return () => clearTimeout(t);
+  }, [stealFly.phase, stealFly.active]);
+
+  useEffect(() => {
+    if (stealFly.phase !== 'snap' || !stealFly.active) return;
+    const t = setTimeout(() => {
+      setStealFly({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [stealFly.phase, stealFly.active]);
+
+  /* Track when a favor/pair/triple action resolves so we know which opponent sent the card */
+  useEffect(() => {
+    if (pending?.type === 'favor' && pending?.by === myRole && pending?.target) {
+      stealFlySourceRef.current = pending.target;
+    } else if ((pending?.type === 'pair' || pending?.type === 'triple') && pending?.by === myRole && pending?.target) {
+      stealFlySourceRef.current = pending.target;
+    }
+  }, [pending?.type, pending?.by, pending?.target, myRole]);
+
+  const handleDrawClick = useCallback(() => {
+    if (drawFlyBusyRef.current || drawFly.active) return;
+    drawFlyBusyRef.current = true;
+    drawFlyTimersRef.current.forEach(clearTimeout);
+    drawFlyTimersRef.current = [];
+
+    const pileEl = drawPileRef.current;
+    const handEl = handFanRef.current;
+    if (!pileEl || !handEl) {
+      onDrawCard?.();
+      drawFlyBusyRef.current = false;
+      return;
+    }
+
+    const cs = getComputedStyle(document.documentElement);
+    const pileW = parseFloat(cs.getPropertyValue('--ek-pile-w')) || 116;
+    const pileH = parseFloat(cs.getPropertyValue('--ek-pile-h')) || 162;
+    const cardW = parseFloat(cs.getPropertyValue('--ek-card-w')) || 208;
+    const cardH = parseFloat(cs.getPropertyValue('--ek-card-h')) || 293;
+
+    const pr = pileEl.getBoundingClientRect();
+    const hr = handEl.getBoundingClientRect();
+
+    const sx = pr.left + pr.width / 2 - pileW / 2;
+    const sy = pr.top + pr.height / 2 - pileH / 2;
+
+    const n = myHand.length;
+    const gap = 10;
+    const handContentW = n > 0 ? n * cardW + (n - 1) * gap : 0;
+    const handCenterX = hr.left + hr.width / 2;
+    const handEndX = handCenterX + handContentW / 2 + gap + cardW / 2;
+    const handTopY = hr.top + 10;
+
+    const tx = handEndX - cardW / 2;
+    const ty = handTopY;
+
+    setDrawFly({ active: true, x: sx, y: sy, dx: tx - sx, dy: ty - sy, phase: 'lift', pileW, pileH, cardW, cardH });
+  }, [drawFly.active, onDrawCard, myHand.length]);
 
   useEffect(() => {
     setHandOrder(prev => {
@@ -806,6 +977,9 @@ function GameBoardScreen({
       return next;
     });
     setDragFromIdx(null);
+    setNewCardIds(new Set());
+    Object.values(flipTimersRef.current).forEach(clearTimeout);
+    flipTimersRef.current = {};
     SoundManager.play('shuffle');
   }, [dragFromIdx, myHand]);
 
@@ -813,31 +987,6 @@ function GameBoardScreen({
     setDragFromIdx(null);
     setDragOverIdx(null);
   }, []);
-
-  // ── Auto-play cat pair: selecting exactly 2 matching cats plays them ──
-  useEffect(() => {
-    if (!myTurn || phase !== 'play') return;
-    if (selectedCards.length !== 2) return;
-    const [a, b] = selectedCards;
-    if (!a || !b || a.type !== b.type) return;
-    const currentIds = new Set(myHand.map(c => c.id));
-    if (!currentIds.has(a.id) || !currentIds.has(b.id)) return;
-    onPlaySelected();
-  }, [selectedCards, myTurn, phase, onPlaySelected]);
-
-  // ── Auto-trade: selecting exactly 5 DIFFERENT cat cards trades for a Defuse ──
-  useEffect(() => {
-    if (!myTurn || phase !== 'play') return;
-    if (selectedCards.length !== 5) return;
-    if (!selectedCards.every(c => CAT_CARD_TYPES.has(c.type))) return;
-    const uniqueTypes = new Set(selectedCards.map(c => c.type));
-    if (uniqueTypes.size !== 5) return; // phải là 5 loại mèo khác nhau
-    const currentIds = new Set(myHand.map(c => c.id));
-    if (!selectedCards.every(c => currentIds.has(c.id))) return;
-    onTradeCatsForDefuse(selectedCards.map(c => c.id));
-    setSelectedCards([]);
-    SoundManager.play('shuffle');
-  }, [selectedCards, myTurn, phase, onTradeCatsForDefuse, setSelectedCards]);
 
   const canNope = nopeWindow?.open && myHand.some(c => c.type === CARD_TYPES.NOPE);
   const nopeCard = myHand.find(c => c.type === CARD_TYPES.NOPE);
@@ -913,8 +1062,9 @@ function GameBoardScreen({
                   const isFaceUp = topCard?.faceUp === true;
                   return (
                     <div
-                      className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''} ${drawAnim ? 'ek-pile-draw-pulse' : ''} ${isFaceUp ? 'ek-pile-faceup' : ''}`}
-                      onClick={myTurn && phase === 'play' ? onDrawCard : undefined}
+                      ref={drawPileRef}
+                      className={`ek-pile-card ek-pile-draw ${myTurn && phase === 'play' ? 'ek-pile-clickable' : ''} ${drawFly.active ? 'ek-pile-drawing' : ''} ${isFaceUp ? 'ek-pile-faceup' : ''}`}
+                      onClick={myTurn && phase === 'play' ? handleDrawClick : undefined}
                     >
                       {isFaceUp ? (
                         <>
@@ -1001,7 +1151,7 @@ function GameBoardScreen({
           </div>
 
           <div className="ek-hand-and-actions">
-            <div className="ek-hand-fan">
+            <div className="ek-hand-fan" ref={handFanRef}>
               {displayHand.length > 0 ? displayHand.map((card, idx) => {
                 const isSelected = selectedCards.some(s => s.id === card.id);
                 const meta = CARD_META[card.type];
@@ -1019,6 +1169,7 @@ function GameBoardScreen({
                     isDisabled={(!myTurn || phase !== 'play') && !isNopeable}
                     zIndex={isSelected ? 50 : idx}
                     onClick={onCardClick}
+                    onContextMenu={onPreSelect}
                     isActionCardSelected={isSelected && !CAT_CARD_TYPES.has(card.type)}
                     draggable={myTurn && phase === 'play'}
                     dragOver={dragOverIdx === idx}
@@ -1033,11 +1184,46 @@ function GameBoardScreen({
               )}
             </div>
           </div>
-          {myTurn && phase === 'play' && selectedCards.length > 0 && (
-            <SelectionHint selectedCards={selectedCards} />
-          )}
         </div>
       </div>
+
+      {/* ── Draw card fly animation ── */}
+      {drawFly.active && (
+        <div
+          className={`ek-draw-fly-card ek-draw-fly-${drawFly.phase}`}
+          style={{
+            position: 'fixed', left: drawFly.x, top: drawFly.y,
+            '--dx': `${drawFly.dx}px`, '--dy': `${drawFly.dy}px`,
+            '--scale-end': (drawFly.cardW / drawFly.pileW).toFixed(3),
+            width: drawFly.pileW, height: drawFly.pileH, zIndex: 200, pointerEvents: 'none',
+          }}
+        >
+          <div className="ek-card-back" style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden' }}>
+            <img src="/Resources/exploding kitten/backcard.webp" alt="" className="ek-card-back-img"
+              onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+            <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Steal card fly animation (favor / pair) ── */}
+      {stealFly.active && (
+        <div
+          className={`ek-draw-fly-card ek-draw-fly-${stealFly.phase}`}
+          style={{
+            position: 'fixed', left: stealFly.x, top: stealFly.y,
+            '--dx': `${stealFly.dx}px`, '--dy': `${stealFly.dy}px`,
+            '--scale-end': (stealFly.cardW / stealFly.pileW).toFixed(3),
+            width: stealFly.pileW, height: stealFly.pileH, zIndex: 200, pointerEvents: 'none',
+          }}
+        >
+          <div className="ek-card-back" style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden' }}>
+            <img src="/Resources/exploding kitten/backcard.webp" alt="" className="ek-card-back-img"
+              onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+            <span className="ek-card-back-icon" style={{ display: 'none' }}>🐱</span>
+          </div>
+        </div>
+      )}
 
       {/* ── Phase Overlays ── */}
       {phase === 'defuse' && pending?.by === myRole && bombDone && !showDefuseFx && (
@@ -1068,6 +1254,11 @@ function GameBoardScreen({
       {phase === 'pair_target' && pending?.by === myRole && !fxBusy && (
         <div className="ek-overlay-panel">
           <PairTargetPanel players={players} myRole={myRole} onSteal={onStealCard} />
+        </div>
+      )}
+      {phase === 'triple_target' && pending?.by === myRole && !fxBusy && (
+        <div className="ek-overlay-panel">
+          <TripleStealPanel players={players} myRole={myRole} onSteal={onStealTriple} />
         </div>
       )}
       {phase === 'mark_choose_target' && pending?.by === myRole && !fxBusy && (
@@ -1111,8 +1302,9 @@ function GameBoardScreen({
 }
 
 /* ─── HAND CARD (extracted & memoized) ──────────────────────────────── */
-const HandCard = memo(function HandCard({ card, meta, marked, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
+const HandCard = memo(function HandCard({ card, meta, marked, isSelected, isNopeable, isNew, isDisabled, zIndex, onClick, onContextMenu, isActionCardSelected, draggable, dragOver, onDragStart, onDragOverCard, onDropCard, onDragEnd }) {
   const handleClick = useCallback(() => onClick(card), [onClick, card]);
+  const handleCtx = useCallback((e) => { e.preventDefault(); onContextMenu?.(card); }, [onContextMenu, card]);
 
   const cardRef = useRef(null);
   const tiltRaf = useRef(0);
@@ -1159,6 +1351,7 @@ const HandCard = memo(function HandCard({ card, meta, marked, isSelected, isNope
       style={{ '--card-color': meta?.color || '#888', zIndex }}
       draggable={draggable || undefined}
       onClick={handleClick}
+      onContextMenu={handleCtx}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onDragStart={onDragStart}
@@ -1182,33 +1375,6 @@ const HandCard = memo(function HandCard({ card, meta, marked, isSelected, isNope
       )}
       {isNopeable && <div className="ek-nope-glow" />}
       {marked && <div className="ek-marked-badge">🔖 MARKED</div>}
-    </div>
-  );
-});
-
-/* ─── SELECTION HINT ─────────────────────────────────────────────────── */
-const SelectionHint = memo(function SelectionHint({ selectedCards }) {
-  const allCats = selectedCards.every(c => CAT_CARD_TYPES.has(c.type));
-  const isPair = selectedCards.length === 2 && selectedCards[0].type === selectedCards[1].type;
-
-  let text;
-  if (!allCats && selectedCards.length === 1) {
-    text = `▶ ${CARD_META[selectedCards[0].type]?.label} selected — click again to Play`;
-  } else if (allCats) {
-    if (selectedCards.length === 5) {
-      text = '🐱 Trading 5 different cats for a Defuse…';
-    } else if (isPair) {
-      text = '🐱 Cat pair ready to play!';
-    } else if (selectedCards.length === 2) {
-      text = '🃏 Same-type pair plays, or keep adding different cats to reach 5';
-    } else {
-      text = `🐱 ${selectedCards.length}/5 different cats — keep selecting to Trade for Defuse`;
-    }
-  }
-
-  return (
-    <div className={`ek-selection-hint${allCats && selectedCards.length === 5 ? ' ek-selection-hint-trade' : ''}`}>
-      {text}
     </div>
   );
 });
@@ -1452,28 +1618,37 @@ function PairTargetPanel({ players, myRole, onSteal }) {
 
   if (chosenTarget) {
     const targetPlayer = players[chosenTarget];
-    const handCount = targetPlayer?.hand?.length || 0;
+    const hand = targetPlayer?.hand || [];
+    const handCount = hand.length;
     return (
       <div className="ek-panel-inner">
         <div className="ek-panel-icon">🃏</div>
         <h3 className="ek-panel-title">Pick a card to steal</h3>
-        <p className="ek-panel-sub">From {targetPlayer?.name} — cards stay face-down. Choose by position.</p>
+        <p className="ek-panel-sub">From {targetPlayer?.name} — marked cards are revealed. Choose by position.</p>
         <div className="ek-steal-grid">
-          {[...Array(handCount)].map((_, i) => (
-            <button
-              key={i}
-              className={`ek-steal-card${hoverIdx === i ? ' ek-steal-card-hover' : ''}`}
-              style={{ animationDelay: `${i * 0.05}s` }}
-              onMouseEnter={() => setHoverIdx(i)}
-              onMouseLeave={() => setHoverIdx(null)}
-              onClick={() => onSteal(chosenTarget, i)}
-            >
-              <div className="ek-steal-card-back">
-                <img src="/Resources/exploding kitten/backcard.webp" alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
-              </div>
-              <div className="ek-steal-card-num">#{i + 1}</div>
-            </button>
-          ))}
+          {hand.map((card, i) => {
+            const isMarked = card.marked === true;
+            const meta = CARD_META[card.type];
+            return (
+              <button
+                key={card.id ?? i}
+                className={`ek-steal-card${hoverIdx === i ? ' ek-steal-card-hover' : ''}${isMarked ? ' ek-steal-card-marked' : ''}`}
+                style={{ animationDelay: `${i * 0.05}s` }}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+                onClick={() => onSteal(chosenTarget, i)}
+              >
+                {isMarked ? (
+                  <img src={card.image || ''} alt={meta?.label || card.type} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+                ) : (
+                  <div className="ek-steal-card-back">
+                    <img src="/Resources/exploding kitten/backcard.webp" alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+                  </div>
+                )}
+                <div className="ek-steal-card-num">#{i + 1}</div>
+              </button>
+            );
+          })}
         </div>
         <button className="ek-action-btn ek-action-draw" style={{ width: '100%', marginTop: 14 }} onClick={() => setChosenTarget(null)}>
           ← Back to players
@@ -1491,15 +1666,67 @@ function PairTargetPanel({ players, myRole, onSteal }) {
         {targets.map(([role, p]) => (
           <button key={role} className="ek-target-btn" onClick={() => setChosenTarget(role)} disabled={!p.hand || p.hand.length === 0}>
             <UserAvatar name={p.name} avatar={p.avatar} className="ek-target-avatar" fallback="?" />
-            <div className="ek-opp-mini-cards">
-              {[...Array(Math.min(p.hand?.length || 0, 5))].map((_, i) => (
-                <span key={i} className="ek-opp-mini-card">🐱</span>
-              ))}
-            </div>
-            <div>
-              <div>{p.name}</div>
-              <div className="ek-target-count">{(p.hand || []).length} cards</div>
-            </div>
+            <span>{p.name}</span>
+            <span className="ek-target-count">{(p.hand || []).length} cards</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── TRIPLE STEAL PANEL ───────────────────────────────────────────── */
+const TRIPLE_STEAL_TYPES = [
+  CARD_TYPES.DEFUSE, CARD_TYPES.ATTACK, CARD_TYPES.SKIP, CARD_TYPES.FAVOR,
+  CARD_TYPES.SHUFFLE, CARD_TYPES.SEE_THE_FUTURE, CARD_TYPES.ALTER_THE_FUTURE,
+  CARD_TYPES.NOPE, CARD_TYPES.DRAW_FROM_BOTTOM, CARD_TYPES.SWAP_TOP_BOTTOM,
+  CARD_TYPES.MARK, CARD_TYPES.STREAKING_KITTEN, CARD_TYPES.CATOMIC_BOMB,
+  CARD_TYPES.TACOCAT, CARD_TYPES.CATTERMELON, CARD_TYPES.HAIRY_POTATO_CAT,
+  CARD_TYPES.BEARD_CAT, CARD_TYPES.RAINBOW_CAT,
+];
+
+function TripleStealPanel({ players, myRole, onSteal }) {
+  const [chosenTarget, setChosenTarget] = useState(null);
+  const targets = Object.entries(players).filter(([role, p]) => role !== myRole && p?.alive !== false);
+
+  if (chosenTarget) {
+    const targetPlayer = players[chosenTarget];
+    return (
+      <div className="ek-panel-inner">
+        <div className="ek-panel-icon">🎯</div>
+        <h3 className="ek-panel-title">Choose a card to steal</h3>
+        <p className="ek-panel-sub">From {targetPlayer?.name} — pick any card type. If they have it, it's yours!</p>
+        <div className="ek-triple-type-grid">
+          {TRIPLE_STEAL_TYPES.map(type => {
+            const meta = CARD_META[type];
+            if (!meta) return null;
+            return (
+              <button key={type} className="ek-triple-type-btn" onClick={() => onSteal(chosenTarget, type)}>
+                <img src={meta.images[0]} alt={meta.label} className="ek-triple-type-img" loading="lazy" decoding="async"
+                  onError={e => { e.target.style.display = 'none'; }} />
+                <span className="ek-triple-type-label">{meta.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <button className="ek-action-btn ek-action-draw" style={{ width: '100%', marginTop: 14 }} onClick={() => setChosenTarget(null)}>
+          ← Back to players
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ek-panel-inner">
+      <div className="ek-panel-icon">🎯</div>
+      <h3 className="ek-panel-title">Triple Cat — Steal any card!</h3>
+      <p className="ek-panel-sub">Choose a player, then pick a card type to steal</p>
+      <div className="ek-target-list">
+        {targets.map(([role, p]) => (
+          <button key={role} className="ek-target-btn" onClick={() => setChosenTarget(role)} disabled={!p.hand || p.hand.length === 0}>
+            <UserAvatar name={p.name} avatar={p.avatar} className="ek-target-avatar" fallback="?" />
+            <span>{p.name}</span>
+            <span className="ek-target-count">{(p.hand || []).length} cards</span>
           </button>
         ))}
       </div>
@@ -1537,7 +1764,7 @@ const OpponentSlot = memo(function OpponentSlot({ player, role, position, isActi
   const overflowMarked = hand.slice(displayCount).filter(c => c.marked);
   const shown = [...visible, ...overflowMarked];
   return (
-    <div className={`ek-opponent ek-opp-${position}${isActive ? ' ek-opponent-active' : ''}${isDead ? ' ek-opponent-dead' : ''}`}>
+    <div data-role={role} className={`ek-opponent ek-opp-${position}${isActive ? ' ek-opponent-active' : ''}${isDead ? ' ek-opponent-dead' : ''}`}>
       <div className="ek-opp-info">
         <UserAvatar name={player?.name} avatar={player?.avatar} className="ek-opp-avatar" fallback="?" />
         <div>
@@ -1919,19 +2146,51 @@ function getStyles() {
     .ek-pile-count-badge { position: absolute; bottom: 5px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; font-family: 'DM Mono', monospace; }
     .ek-discard-label { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); padding: 6px 4px 4px; font-size: 9px; text-align: center; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.7); }
 
-    /* ── Draw card animation ── */
-    .ek-pile-draw-pulse { animation: drawPulse .35s ease; }
-    @keyframes drawPulse { 0% { transform: scale(1); } 45% { transform: scale(0.92); } 100% { transform: scale(1); } }
-    .ek-draw-fly {
-      position: absolute; top: 0; left: 50%; width: var(--ek-pile-w); height: var(--ek-pile-h);
-      margin-left: calc(var(--ek-pile-w) / -2); border-radius: 10px; overflow: hidden;
-      pointer-events: none; z-index: 60; box-shadow: 0 14px 36px rgba(0,0,0,0.55);
-      animation: drawFly .62s cubic-bezier(.3,.7,.3,1) forwards;
+    /* ── Draw card fly animation ── */
+    .ek-pile-drawing {
+      border-color: var(--ek-green) !important;
+      box-shadow: 0 0 16px rgba(61,214,140,0.35) !important;
+      animation: pileRecoil 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes pileRecoil {
+      0%   { transform: scale(1); }
+      20%  { transform: scale(0.92) translateY(2px); }
+      50%  { transform: scale(1.03) translateY(-1px); }
+      100% { transform: scale(1) translateY(0); }
+    }
+
+    .ek-draw-fly-card {
+      will-change: transform, opacity;
+      transform-origin: center center;
+      filter: drop-shadow(0 14px 28px rgba(0,0,0,0.55));
+      backface-visibility: hidden;
+    }
+
+    .ek-draw-fly-lift {
+      animation: drawLift 120ms ease-out forwards;
+    }
+    @keyframes drawLift {
+      0%   { transform: scale(1) rotate(0deg); opacity: 1; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4)); }
+      100% { transform: scale(1.05) rotate(-2.5deg); opacity: 1; filter: drop-shadow(0 12px 24px rgba(0,0,0,0.6)); }
+    }
+
+    .ek-draw-fly-fly {
+      animation: drawFly 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
     @keyframes drawFly {
-      0%   { opacity: 0; transform: translateY(0) translateX(0) scale(1) rotate(0deg); }
-      18%  { opacity: 1; }
-      100% { opacity: 0; transform: translateY(180px) translateX(-30px) scale(1.25) rotate(-10deg); }
+      0%   { transform: translate(0,0) scale(1.05) rotate(-2.5deg); opacity: 1; }
+      25%  { transform: translate(calc(var(--dx)*0.3), calc(var(--dy)*0.3)) scale(calc(1.05 + (var(--scale-end) - 1.05)*0.3)) rotate(2deg); opacity: 1; }
+      55%  { transform: translate(calc(var(--dx)*0.75), calc(var(--dy)*0.75)) scale(calc(1.05 + (var(--scale-end) - 1.05)*0.75)) rotate(-1.5deg); opacity: 1; }
+      100% { transform: translate(var(--dx), var(--dy)) scale(var(--scale-end)) rotate(0deg); opacity: 1; }
+    }
+
+    .ek-draw-fly-snap {
+      animation: drawSnap 150ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+    @keyframes drawSnap {
+      0%   { transform: translate(var(--dx), var(--dy)) scale(var(--scale-end)) rotate(0deg); opacity: 1; }
+      40%  { transform: translate(var(--dx), calc(var(--dy) - 10px)) scale(calc(var(--scale-end) * 0.96)) rotate(0deg); opacity: 1; }
+      100% { transform: translate(var(--dx), var(--dy)) scale(var(--scale-end)) rotate(0deg); opacity: 0; }
     }
 
     /* ── Nope Banner ── */
@@ -1991,8 +2250,7 @@ function getStyles() {
       border-color: color-mix(in srgb, var(--card-color, var(--ek-ember)) 90%, #fff);
       box-shadow: 0 20px 38px rgba(0,0,0,0.6), 0 0 0 2px var(--card-color, var(--ek-ember)), 0 0 24px color-mix(in srgb, var(--card-color, var(--ek-ember)) 55%, transparent);
     }
-    .ek-opp-mini-cards { display: flex; gap: 2px; }
-    .ek-opp-mini-card { font-size: 14px; }
+
 
     .ek-fx-card-icon {
       position: absolute; bottom: 6px; right: 6px;
@@ -2008,7 +2266,15 @@ function getStyles() {
     .ek-steal-card:hover, .ek-steal-card-hover { transform: translateY(-10px) scale(1.07); }
     .ek-steal-card-back { width: 100%; height: 100%; border-radius: 10px; background: linear-gradient(160deg, #3d1200, #1a0800); border: 2px solid rgba(255,144,32,0.35); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: border-color .18s, box-shadow .18s; }
     .ek-steal-card:hover .ek-steal-card-back, .ek-steal-card-hover .ek-steal-card-back { border-color: var(--ek-ember); box-shadow: 0 8px 22px rgba(255,90,31,0.45), 0 0 0 2px var(--ek-ember); }
+    .ek-steal-card-marked { border: 2px solid rgba(255,215,0,0.6); box-shadow: 0 0 10px rgba(255,215,0,0.25); }
+    .ek-steal-card:hover.ek-steal-card-marked, .ek-steal-card-hover.ek-steal-card-marked { box-shadow: 0 8px 22px rgba(255,215,0,0.45), 0 0 0 2px rgba(255,215,0,0.8); }
     .ek-steal-card-num { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.55); }
+
+    .ek-triple-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; max-height: 45vh; overflow-y: auto; padding: 4px 0; }
+    .ek-triple-type-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 2px solid rgba(255,255,255,0.12); border-radius: 10px; background: rgba(255,255,255,0.06); cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+    .ek-triple-type-btn:hover { border-color: var(--ek-ember); background: rgba(255,90,31,0.12); transform: translateY(-3px); }
+    .ek-triple-type-img { width: 56px; height: 78px; object-fit: cover; border-radius: 6px; pointer-events: none; }
+    .ek-triple-type-label { font-size: 10px; color: rgba(255,255,255,0.75); text-align: center; line-height: 1.2; }
 
     /* ══ CARD FLIP ANIMATION ══ */
     .ek-hand-card {
@@ -2035,11 +2301,11 @@ function getStyles() {
 
     .ek-hand-card.ek-hand-card-new .ek-card-face-back {
       display: block; z-index: 2;
-      animation: faceHide 0.75s forwards;
+      animation: newCardBackHide 0.9s forwards;
     }
     .ek-hand-card.ek-hand-card-new .ek-card-face-front {
       display: block; z-index: 3;
-      animation: faceReveal 0.75s forwards;
+      animation: newCardFrontReveal 0.9s forwards;
     }
 
     .ek-hand-card.ek-hand-card-new {
@@ -2052,18 +2318,19 @@ function getStyles() {
       100% { transform: translateY(0px) scale(1); opacity: 1; }
     }
 
-    @keyframes faceHide {
-      0%  { transform: scaleX(1); opacity: 1; }
-      40% { transform: scaleX(0); opacity: 1; }
-      41% { transform: scaleX(0); opacity: 0; }
-      100%{ transform: scaleX(0); opacity: 0; }
+    @keyframes newCardBackHide {
+      0%   { transform: scaleX(1); opacity: 1; }
+      65%  { transform: scaleX(1); opacity: 1; }
+      80%  { transform: scaleX(0); opacity: 1; }
+      81%  { transform: scaleX(0); opacity: 0; }
+      100% { transform: scaleX(0); opacity: 0; }
     }
 
-    @keyframes faceReveal {
-      0%  { transform: scaleX(0); opacity: 0; }
-      40% { transform: scaleX(0); opacity: 0; }
-      41% { transform: scaleX(0); opacity: 1; }
-      100%{ transform: scaleX(1); opacity: 1; }
+    @keyframes newCardFrontReveal {
+      0%   { transform: scaleX(0); opacity: 0; }
+      65%  { transform: scaleX(0); opacity: 0; }
+      66%  { transform: scaleX(0); opacity: 1; }
+      100% { transform: scaleX(1); opacity: 1; }
     }
 
     .ek-hand-card::before {
@@ -2186,27 +2453,7 @@ function getStyles() {
       50%      { box-shadow: 0 4px 22px rgba(255,90,31,0.9), 0 0 0 3px rgba(255,90,31,0.6); }
     }
 
-    /* ── Selected cat cards counter for trade ── */
-    .ek-selection-hint {
-      margin-top: 2px;
-      padding: 6px 16px;
-      border-radius: 18px;
-      background: rgba(255,208,96,0.12);
-      border: 1px solid rgba(255,208,96,0.35);
-      color: var(--ek-gold);
-      font-size: 12px; font-weight: 800; text-align: center;
-      letter-spacing: .3px;
-      animation: hintIn .25s ease;
-    }
-    .ek-selection-hint-trade {
-      background: rgba(61,214,140,0.15);
-      border-color: rgba(61,214,140,0.5);
-      color: var(--ek-green);
-    }
-    @keyframes hintIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
+    
     .ek-hand-empty { color: rgba(255,255,255,0.2); font-size: 13px; font-family: 'DM Mono', monospace; padding: 24px; align-self: center; }
 
     /* ══ MY HAND ══ */
@@ -2766,7 +3013,7 @@ function getStyles() {
     @media (prefers-reduced-motion: reduce) {
       .ek-spark, .ek-brand-icon, .ek-opp-pulse, .ek-my-turn-dot,
       .ek-turn-mine, .ek-hand-card-nopeable, .ek-nope-btn,
-      .ek-bomb-overlay, .ek-draw-fly, .ek-fx-layer,
+      .ek-bomb-overlay, .ek-draw-fly-card, .ek-fx-layer,
       .ek-hand-card-selected::after,
       .ek-implode-overlay, .ek-implode-void, .ek-implode-ring,
       .ek-implode-particle, .ek-implode-card-pull, .ek-implode-text,
@@ -2776,7 +3023,7 @@ function getStyles() {
       .ek-seefuture-iris, .ek-seefuture-pupil, .ek-seefuture-ring,
       .ek-seefuture-shard, .ek-seefuture-text,
       .ek-alterfuture-overlay, .ek-alterfuture-flash, .ek-alterfuture-spiral,
-      .ek-alterfuture-fragment, .ek-alterfuture-text { animation: none !important; }
+      .ek-alterfuture-fragment, .ek-alterfuture-text { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
       .ek-hand-card, .ek-favor-card, .ek-steal-card,
       .ek-pile-card, .ek-target-btn { transition: none !important; }
     }
