@@ -162,6 +162,7 @@ const STYLES = `
   .ludo-pawns-layer { position:absolute; inset:0; }
   .ludo-pawn { position:absolute; transition:left .28s cubic-bezier(.34,1.56,.64,1),top .28s cubic-bezier(.34,1.56,.64,1); cursor:default; filter:drop-shadow(0 3px 4px rgba(0,0,0,.6)); }
   .ludo-pawn.movable { cursor:pointer; animation:pawnPulse .85s ease-in-out infinite; filter:drop-shadow(0 0 8px #fff) drop-shadow(0 3px 5px rgba(0,0,0,.6)); }
+  .ludo-pawn.animating { transition:left .14s linear,top .14s linear; z-index:30 !important; }
   @keyframes pawnPulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.22)} }
 
   /* ── 3D DICE ── */
@@ -386,6 +387,13 @@ export default function LudoApp() {
     const [boardImgOk, setBoardImgOk] = useState(true);
     const [mute, setMute] = useState(false);
 
+    // Animation state: blocks interactions while a pawn is stepping through cells
+    const [isAnimating, setIsAnimating] = useState(false);
+    const [animOverride, setAnimOverride] = useState(null); // { pawnKey, position }
+    const animTimeoutsRef = useRef([]);
+    const animatingRef = useRef(false); // synchronous mirror of isAnimating
+    const prevRoomRef = useRef(null); // last room snapshot, for remote-move detection
+
     /* ── Display name is driven by auth: Google users are locked to their
         account name; anonymous users can still type their own. ── */
     const fieldName = name || displayName;
@@ -453,10 +461,28 @@ export default function LudoApp() {
         return () => unsub();
     }, [roomId, myRole]);
 
-    /* Listen room */
+    /* Listen room — detect remote pawn moves so THEY animate step-by-step too.
+     * Detection runs synchronously inside the snapshot callback (BEFORE the
+     * re-render) so the animating pawn is never painted at its final square
+     * first (which would cause a visible snap-back). The handler is kept in a
+     * ref (refreshed after each render) so the subscription stays stable. */
+    const onRoomSnapshotRef = useRef(() => { });
+    useEffect(() => {
+        onRoomSnapshotRef.current = (data) => {
+            const plan = buildRemoteAnimation(prevRoomRef.current, data, myRole);
+            prevRoomRef.current = data;
+            if (plan) {
+                startMoveAnimation(plan.pawnKey, plan.steps, () => {
+                    animatingRef.current = false;
+                });
+            }
+            setRoomData(data);
+        };
+    });
+
     useEffect(() => {
         if (!roomId) return;
-        return listenRoom(roomId, data => setRoomData(data));
+        return listenRoom(roomId, data => onRoomSnapshotRef.current(data));
     }, [roomId]);
 
     /* Screen transitions */
@@ -481,6 +507,29 @@ export default function LudoApp() {
         const t = setTimeout(() => setSpecialFx(null), 1200);
         return () => clearTimeout(t);
     }, [specialFx]);
+
+    /* Clean up any pending movement animation timers on unmount */
+    useEffect(() => {
+        return () => {
+            animTimeoutsRef.current.forEach(t => clearTimeout(t));
+            animTimeoutsRef.current = [];
+        };
+    }, []);
+
+    /* Release the animation position override as soon as the authoritative
+     * Firebase state has the pawn at that same square (that is, once the
+     * movePawn write has landed). This prevents the override from lingering
+     * into a rematch / new round. */
+    useEffect(() => {
+        if (!animOverride) return;
+        const [roleKey, idStr] = String(animOverride.pawnKey).split("-");
+        const pawn = ludo?.playerData?.[roleKey]?.pawns?.find(p => p.id === Number(idStr));
+        if (pawn && pawn.position === animOverride.position) {
+            // released after commit — deferred out of the effect body
+            const t = setTimeout(() => setAnimOverride(null), 0);
+            return () => clearTimeout(t);
+        }
+    }, [ludo, animOverride]);
 
     /* Effect #3a: special banner + sound when dice show a 6.
      * CHANGED: rolling a 1 used to also grant an extra turn and show its own
@@ -524,7 +573,7 @@ export default function LudoApp() {
      * re-rolls when the dice qualify for a second chance (isSecondChance),
      * and only passes to the next player otherwise. */
     useEffect(() => {
-        if (!ludo || !isMyTurn || phase !== "move" || dice.length === 0) return;
+        if (!ludo || !isMyTurn || phase !== "move" || dice.length === 0 || isAnimating) return;
         if (availableMoves.length > 0) return;
         const getsAnotherRoll = !shouldPassTurn(dice);
         const t = setTimeout(() => {
@@ -538,7 +587,7 @@ export default function LudoApp() {
             handleNoMoves(roomId, myRole);
         }, 900);
         return () => clearTimeout(t);
-    }, [phase, JSON.stringify(dice), isMyTurn]);
+    }, [phase, JSON.stringify(dice), isMyTurn, isAnimating]);
 
     /* Sound: your turn */
     useEffect(() => {
@@ -623,9 +672,111 @@ export default function LudoApp() {
         if (!next) playSound("click");
     }
 
+    /* ─── Movement animation ─────────────────────────────────
+     * Instead of jumping straight to the target cell, compute every
+     * intermediate cell the pawn passes through and step through them
+     * one at a time. Each step triggers a fast CSS transition (see
+     * .ludo-pawn.animating), producing a natural "walking" feel.
+     * The animation is PURELY VISUAL — the authoritative Firebase
+     * write (capture / home / win / turn) only runs after it completes,
+     * so the move result is never altered. */
+    function getMovePath(move, color) {
+        const pathArr = PATH[color];
+        if (move.distance === 0) {
+            // Entering from the yard — single hop to the entry square
+            return [pathArr[0]];
+        }
+        const steps = [];
+        for (let i = 0; i < move.distance; i++) {
+            steps.push(pathArr[move.startIndex + i]);
+        }
+        return steps;
+    }
+
+    /* Build the cell list a pawn passes through for a REMOTE move between two
+     * consecutive room snapshots. Returns null when the change is not an
+     * animatable forward move (captures-back / yard resets / reconnect jank),
+     * mirroring the local getMovePath semantics. */
+    function getMoveSteps(fromPos, toPos, color, fromActive) {
+        const pathArr = PATH[color];
+        // entering the board from the yard — single hop to the entry square
+        if (!fromActive && toPos === pathArr[0]) {
+            return [pathArr[0]];
+        }
+        const fromIdx = pathArr.indexOf(fromPos);
+        const toIdx = pathArr.indexOf(toPos);
+        if (fromIdx === -1 || toIdx === -1 || toIdx <= fromIdx) return null;
+        const steps = pathArr.slice(fromIdx + 1, toIdx + 1);
+        // single-die Ludo → a legal move spans 1..6 cells; anything larger is
+        // a reconnect/catch-up snapshot and should just snap into place.
+        if (steps.length > 6) return null;
+        return steps;
+    }
+
+    /* Detect the ONE pawn that moved forward between two room snapshots and
+     * return its animation plan. Skips our own move (already animated locally
+     * by handlePawnClick) and non-movement resets. */
+    function buildRemoteAnimation(prevData, newData, myRole) {
+        const prevLudo = prevData?.ludo;
+        const newLudo = newData?.ludo;
+        if (!prevLudo || !newLudo) return null;
+        if (newLudo.lastRolledBy === myRole) return null; // already animated here
+        const pdPrev = prevLudo.playerData || {};
+        const pdNew = newLudo.playerData || {};
+        for (const role of Object.keys(pdNew)) {
+            const prevArr = pdPrev[role]?.pawns;
+            if (!prevArr) continue;
+            for (const pawn of pdNew[role].pawns) {
+                if (pawn.complete) continue;
+                const prevPawn = prevArr.find(p => p.id === pawn.id);
+                if (!prevPawn || prevPawn.position === pawn.position) continue;
+                const steps = getMoveSteps(prevPawn.position, pawn.position, pawn.color, prevPawn.active);
+                if (steps) {
+                    return { pawnKey: `${role}-${pawn.id}`, steps };
+                }
+            }
+        }
+        return null;
+    }
+
+    function startMoveAnimation(pawnKey, steps, onComplete) {
+        if (animatingRef.current) return; // guard against double-trigger
+        animatingRef.current = true;
+        animTimeoutsRef.current.forEach(t => clearTimeout(t));
+        animTimeoutsRef.current = [];
+
+        setIsAnimating(true);
+        if (steps.length === 0) {
+            setIsAnimating(false);
+            onComplete();
+            return;
+        }
+
+        const STEP_MS = 160; // total time per cell hop (transition + tiny pause)
+        let step = 0;
+
+        function doStep() {
+            if (step >= steps.length) {
+                // Leave animOverride pinned to the final cell so the pawn does
+                // NOT snap back to its old square while the Firebase write is
+                // still in flight. animOverride is cleared by the sync effect
+                // once Firebase reports the pawn at that position.
+                setIsAnimating(false);
+                onComplete();
+                return;
+            }
+            setAnimOverride({ pawnKey, position: steps[step] });
+            step++;
+            const t = setTimeout(doStep, STEP_MS);
+            animTimeoutsRef.current.push(t);
+        }
+
+        doStep();
+    }
+
     /* ─── Actions ───────────────────────────────────────────── */
     async function handleRoll() {
-        if (!isMyTurn || phase !== "roll" || rolling) return;
+        if (!isMyTurn || phase !== "roll" || rolling || isAnimating || animatingRef.current) return;
         setRolling(true);
         playSound("dice");
         await rollDiceFirebase(roomId, myRole);
@@ -636,22 +787,37 @@ export default function LudoApp() {
     // (declared here, close to where it's used, to keep the diff readable)
     // eslint-disable-next-line no-use-before-define
     async function handlePawnClick(pawnId, color) {
-        if (!isMyTurn || phase !== "move" || color !== myColor) return;
+        if (!isMyTurn || phase !== "move" || color !== myColor || isAnimating || animatingRef.current) return;
         const move = availableMoves.find(m => m.pawnId === pawnId);
         if (!move) return;
 
         const pawn = myPD?.pawns.find(p => p.id === pawnId);
+        const pawnKey = `${myRole}-${pawnId}`;
+        const steps = getMovePath(move, myColor);
+
+        // Enter / walk sound as the pawn starts moving
         if (!pawn?.active) {
             playSound("enter");
-        } else if (move.captureId) {
-            playSound("capture");
-            setSpecialFx({ text: "💥 ĂN QUÂN!" });
-            triggerShake();
         } else {
             playSound("move");
         }
 
-        await movePawn(roomId, myRole, move);
+        // Step the pawn through every intermediate cell, then commit the
+        // authoritative move (capture / home / win / turn) to Firebase.
+        startMoveAnimation(pawnKey, steps, async () => {
+            if (move.captureId) {
+                playSound("capture");
+                setSpecialFx({ text: "💥 ĂN QUÂN!" });
+                triggerShake();
+            }
+            try {
+                await movePawn(roomId, myRole, move);
+            } finally {
+                // Re-enable interaction only after the authoritative move is
+                // fully committed to Firebase.
+                animatingRef.current = false;
+            }
+        });
     }
 
     /* ─── Lobby actions ─────────────────────────────────────── */
@@ -935,6 +1101,7 @@ export default function LudoApp() {
             pd.pawns.forEach((pawn) => {
                 if (pawn.complete) return;
                 const canMove = isMyTurn && phase === "move" && role === myRole
+                    && !isAnimating
                     && availableMoves.some(m => m.pawnId === pawn.id);
                 const key = `${role}-${pawn.id}`;
                 allPawns.push({ role, pd, pawn, canMove, key, displayPos: pawn.position });
@@ -1009,11 +1176,14 @@ export default function LudoApp() {
                     }
                     <div className="ludo-pawns-layer">
                         {allPawns.map(({ role, pd, pawn, canMove, key, displayPos, stackIndex }) => {
-                            const pos = getPawnPixel(displayPos, stackIndex);
+                            const posNow = (animOverride && animOverride.pawnKey === key)
+                                ? animOverride.position
+                                : displayPos;
+                            const pos = getPawnPixel(posNow, stackIndex);
                             return (
                                 <img
                                     key={key}
-                                    className={`ludo-pawn${canMove ? " movable" : ""}`}
+                                    className={`ludo-pawn${canMove ? " movable" : ""}${animOverride?.pawnKey === key ? " animating" : ""}`}
                                     src={ASSETS.pawns[pd.color]}
                                     alt={`${pd.color}${pawn.id}`}
                                     style={{
@@ -1040,7 +1210,7 @@ export default function LudoApp() {
                 </div>
 
                 {/* Move hint */}
-                {isMyTurn && phase === "move" && availableMoves.length > 0 && (
+                {isMyTurn && phase === "move" && availableMoves.length > 0 && !isAnimating && (
                     <div className="ludo-moves-hint">
                         ✨ {availableMoves.length} quân di chuyển được — nhấn vào quân sáng
                     </div>
@@ -1050,7 +1220,7 @@ export default function LudoApp() {
                 <div className="ludo-dice-panel">
                     <Dice3D value={shownDice != null ? shownDice : dice[0]} rolling={rolling} />
                     <button className="ludo-roll-btn"
-                        disabled={!isMyTurn || phase !== "roll" || rolling}
+                        disabled={!isMyTurn || phase !== "roll" || rolling || isAnimating}
                         onClick={handleRoll}>
                         {!isMyTurn
                             ? `⏳ Chờ ${curName}...`
