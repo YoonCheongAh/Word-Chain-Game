@@ -1,5 +1,6 @@
 import { db } from "../firebase";
 import { ref, update, get } from "firebase/database";
+import { rejoinRoom } from "../roomService";
 
 export const LUDO_COLORS = ["r", "g", "y", "b"];
 
@@ -178,6 +179,13 @@ export function calcAvailableMoves(pawns, dice, color, cachePath) {
 }
 
 // ─── FIREBASE FUNCTIONS ───────────────────────────────────────────────────────
+
+// ─── RECONNECT (F5) ──────────────────────────────────────────────────────────
+// Ủy thác cho rejoinRoom (roomService) — logic dùng chung: xác nhận seat cũ,
+// đánh dấu online, KHÔNG dissolve. Trả về {role, status} để vào đúng màn hình.
+export async function rejoinLudo(roomId, role) {
+    return rejoinRoom(roomId, role);
+}
 
 export async function startLudoGame(roomId) {
     const snap = await get(ref(db, `rooms/${roomId}`));

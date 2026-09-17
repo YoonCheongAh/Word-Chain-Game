@@ -66,6 +66,19 @@ export function listenRoom(roomId, callback) {
   return unsub;
 }
 
+// ── Reconnect sau F5: nối lại đúng vị trí cũ (TẠM CHO GAME ĐANG "playing"),
+//    không lấy lượt mới, không dissolve phòng. Chỉ hợp lệ khi seat còn tồn tại.
+export async function rejoinRoom(roomId, playerRole) {
+  const snap = await get(ref(db, `rooms/${roomId}`));
+  if (!snap.exists()) throw new Error("Room no longer exists!");
+  const room = snap.val();
+  if (room.status === "dissolved") throw new Error("Room has been closed!");
+  if (!room.players?.[playerRole]) throw new Error("Your seat is no longer in this room!");
+  await update(ref(db, `rooms/${roomId}/players/${playerRole}`), { online: true });
+  onDisconnect(ref(db, `rooms/${roomId}/players/${playerRole}/online`)).set(false);
+  return { role: playerRole, status: room.status };
+}
+
 export async function setPlayerOnline(roomId, playerRole, online) {
   if (!roomId || !playerRole) return;
   try {

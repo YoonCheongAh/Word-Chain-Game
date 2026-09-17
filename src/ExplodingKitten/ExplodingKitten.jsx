@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { ref, onValue, update } from 'firebase/database';
+import { ref, onValue, update, onDisconnect } from 'firebase/database';
 import { db } from '../firebase';
-import { createRoom, joinRoom, listenRoom, setPlayerOnline } from '../roomService';
+import { createRoom, joinRoom, listenRoom, setPlayerOnline, rejoinRoom } from '../roomService';
 import { useAuth } from '../auth/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import { SoundManager } from './ExplodingKittenSound';
@@ -25,6 +25,38 @@ if (typeof document !== 'undefined') {
     document.head.appendChild(style);
   }
   style.textContent = getStyles();
+}
+
+// ── Reconnect sau F5: lưu session phòng vào localStorage ──
+const EK_SESSION_KEY = 'ek_session_v1';
+const HUB_ACTIVE_GAME_KEY = 'gh_active_game';
+
+function loadEkSession() {
+  try {
+    const raw = localStorage.getItem(EK_SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s && s.roomId && s.role ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveEkSession(roomId, role) {
+  try {
+    localStorage.setItem(EK_SESSION_KEY, JSON.stringify({ roomId, role, ts: Date.now() }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearEkSession() {
+  try {
+    localStorage.removeItem(EK_SESSION_KEY);
+    if (localStorage.getItem(HUB_ACTIVE_GAME_KEY) === 'explodingkitten') localStorage.removeItem(HUB_ACTIVE_GAME_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ── Static arrays moved outside components ──
@@ -73,6 +105,8 @@ export default function ExplodingKitten() {
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
+  const [reconnecting, setReconnecting] = useState(() => !!loadEkSession());
+  const [connected, setConnected] = useState(true);
   const nopeTimerRef = useRef(null);
 
   /* ── Display name is driven by auth: Google users are locked to their
@@ -96,6 +130,49 @@ export default function ExplodingKitten() {
     return () => unsub?.();
   }, [roomId]);
 
+  /* Presence: đánh dấu online + tự xoá khi mất kết nối */
+  useEffect(() => {
+    if (!roomId || !myRole) return;
+    const unsub = onValue(ref(db, '.info/connected'), snap => {
+      if (snap.val()) {
+        update(ref(db, `rooms/${roomId}/players/${myRole}`), { online: true });
+        onDisconnect(ref(db, `rooms/${roomId}/players/${myRole}/online`)).set(false);
+      }
+    });
+    return () => unsub?.();
+  }, [roomId, myRole]);
+
+  /* Banner khi đang chơi bị mất kết nối mạng (Firebase tự kết nối lại) */
+  useEffect(() => {
+    const unsub = onValue(ref(db, '.info/connected'), snap => setConnected(snap.val() !== false));
+    return () => unsub?.();
+  }, []);
+
+  /* Reconnect tự động sau F5: nối lại đúng vị trí cũ.
+   * StrictMode chạy effect 2 lần ở dev → dùng cờ `cancelled` để lần đầu
+   * không ghi đè state sau khi component bị tháo.
+   * Đang giữa trận (status "playing") → vào thẳng game, không qua lobby. */
+  useEffect(() => {
+    const session = loadEkSession();
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { role, status } = await rejoinRoom(session.roomId, session.role);
+        if (cancelled) return;
+        setRoomId(session.roomId);
+        setMyRole(role);
+        if (status === 'playing') setScreen('game');
+        else if (status !== 'dissolved') setScreen('room');
+      } catch {
+        clearEkSession();
+      } finally {
+        if (!cancelled) setReconnecting(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined' && name) {
       localStorage.setItem('ek_player_name', name);
@@ -107,7 +184,7 @@ export default function ExplodingKitten() {
     if (!roomData) return;
     const status = roomData.status;
     if (status === 'playing' && screen !== 'game') setScreen('game');
-    else if (status === 'dissolved') resetToLobby();
+    else if (status === 'dissolved') { resetToLobby(); clearEkSession(); }
     else if ((status === 'waiting' || status === 'ready') && screen === 'lobby' && roomId) setScreen('room');
   }, [roomData?.status]);
 
@@ -144,6 +221,7 @@ export default function ExplodingKitten() {
     const id = await createRoom(fieldName.trim(), { avatar });
     setRoomId(id);
     setMyRole('player1');
+    saveEkSession(id, 'player1');
     setScreen('room');
   }, [fieldName, avatar]);
 
@@ -155,6 +233,7 @@ export default function ExplodingKitten() {
       const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
       setRoomId(inputRoomId.toUpperCase());
       setMyRole(slot);
+      saveEkSession(inputRoomId.toUpperCase(), slot);
       setScreen('room');
     } catch (e) {
       setErr(e.message);
@@ -294,15 +373,26 @@ export default function ExplodingKitten() {
     performMark(roomId, myRole, targetRole);
   }, [roomId, myRole]);
 
+  if (reconnecting) {
+    return <div className="ek-loading">Đang kết nối lại... 🔄</div>;
+  }
+
   if (screen === 'lobby') {
     return <LobbyScreen onCreateRoom={handleCreate} onJoinRoom={handleJoin} fieldValue={fieldName} setName={setName} inputRoomId={inputRoomId} setInputRoomId={setInputRoomId} err={err} isGoogle={isGoogle} />;
   }
   if (screen === 'room') {
-    return <RoomScreen roomData={roomData} roomId={roomId} myRole={myRole} onStart={handleStartGame} onBack={resetToLobby} />;
+    return (
+      <>
+        {!connected && <div className="ek-offline-banner">⚠ Mất kết nối — đang tự động kết nối lại...</div>}
+        <RoomScreen roomData={roomData} roomId={roomId} myRole={myRole} onStart={handleStartGame} onBack={() => { clearEkSession(); resetToLobby(); }} />
+      </>
+    );
   }
   if (screen === 'game' && roomData) {
     return (
-      <GameBoardScreen
+      <>
+        {!connected && <div className="ek-offline-banner">⚠ Mất kết nối — đang tự động kết nối lại...</div>}
+        <GameBoardScreen
         game={game}
         players={players}
         myRole={myRole}
@@ -333,6 +423,7 @@ export default function ExplodingKitten() {
         showToast={showToast}
         roomId={roomId}
       />
+      </>
     );
   }
   return <div className="ek-loading">Loading...</div>;
@@ -529,53 +620,6 @@ const DefuseFx = memo(function DefuseFx({ onDone }) {
   );
 });
 
-const IMPLODE_PARTICLES = [...Array(20)];
-const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, cardImage }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 2600);
-    return () => clearTimeout(t);
-  }, [onDone]);
-
-  return (
-    <div className="ek-implode-overlay" aria-hidden="true">
-      <div className="ek-implode-void" />
-      <div className="ek-implode-ring ek-implode-ring-1" />
-      <div className="ek-implode-ring ek-implode-ring-2" />
-      <div className="ek-implode-ring ek-implode-ring-3" />
-      {IMPLODE_PARTICLES.map((_, i) => {
-        const angle = (i / IMPLODE_PARTICLES.length) * 360;
-        const dist = 140 + (i % 5) * 50;
-        const size = 5 + (i % 4) * 5;
-        return (
-          <div
-            key={i}
-            className="ek-implode-particle"
-            style={{
-              '--angle': `${angle}deg`,
-              '--dist': `${dist}px`,
-              '--size': `${size}px`,
-              '--delay': `${0.1 + (i % 6) * 0.05}s`,
-            }}
-          />
-        );
-      })}
-      <div className="ek-implode-card-pull">
-        <div className="ek-implode-card-inner">
-          <img
-            src={cardImage || '/Resources/exploding kitten/Imploding-Kitten.webp'}
-            alt="Imploding Kitten"
-            onError={e => { e.target.style.display = 'none'; }}
-          />
-        </div>
-      </div>
-      <div className="ek-implode-text">
-        <span className="ek-implode-text-main">IMPLODING…</span>
-        <span className="ek-implode-text-sub">KITTEN REVEALED — FACE UP ON THE DECK</span>
-      </div>
-    </div>
-  );
-});
-
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
@@ -709,22 +753,6 @@ function GameBoardScreen({
     Object.fromEntries(Object.entries(players).map(([r, p]) => [r, p?.alive]))
   );
 
-  const [showImplodeFx, setShowImplodeFx] = useState(false);
-  const prevPhaseImplodeRef = useRef(phase);
-
-  useEffect(() => {
-    if (prevPhaseImplodeRef.current !== 'place_imploding' && phase === 'place_imploding') {
-      setShowImplodeFx(true);
-      setBombDone(false);
-    }
-    prevPhaseImplodeRef.current = phase;
-  }, [phase]);
-
-  const handleImplodeDone = useCallback(() => {
-    setShowImplodeFx(false);
-    setBombDone(true);
-  }, []);
-
   useEffect(() => {
     const phaseChangedToDefuse = prevPhaseRef.current !== 'defuse' && phase === 'defuse';
     // Bất kỳ player nào chuyển sang dead mà trước đó còn sống
@@ -749,8 +777,6 @@ function GameBoardScreen({
     SoundManager.play(gameOver === myRole ? 'win' : 'lose');
     // KHÔNG setShowBombFx(false) ở đây — để explosion animation chạy hết
     // handleBombDone sẽ set bombDone=true sau 2800ms → game-over screen tự hiện
-    // Chỉ tắt implode fx (nó không liên quan đến game-over gate)
-    setShowImplodeFx(false);
   }, [gameOver, myRole]);
 
   const [cardFx, setCardFx] = useState(null);
@@ -915,7 +941,6 @@ function GameBoardScreen({
 
   const fxBusy =
     !bombFxFinished ||
-    showImplodeFx ||
     !!catomicFx ||
     showSeeFutureFx ||
     showAlterFutureFx;
@@ -1290,12 +1315,6 @@ function GameBoardScreen({
       {showNopedFx && <NopedFlashEffect onDone={() => setShowNopedFx(false)} />}
       {showSeeFutureFx && <SeeFutureFx onDone={() => setShowSeeFutureFx(false)} />}
       {showAlterFutureFx && <AlterFutureFx onDone={() => setShowAlterFutureFx(false)} />}
-      {showImplodeFx && (
-        <ImplodingKittenEffect
-          onDone={handleImplodeDone}
-          cardImage={pending?.bomb?.image || '/Resources/exploding kitten/Imploding-Kitten.webp'}
-        />
-      )}
       {showBombFx && <BombExplosionEffect onDone={handleBombDone} />}
     </div>
   );
@@ -1985,6 +2004,15 @@ function getStyles() {
       font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px;
     }
 
+    /* ── Offline banner khi mất kết nối giữa chừng (Firebase auto-reconnect) ── */
+    .ek-offline-banner {
+      position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 998;
+      background: linear-gradient(120deg, #f9a825, #ff6a00); color: #fff;
+      padding: 9px 20px; border-radius: 24px; font-size: 13px; font-weight: 700;
+      box-shadow: 0 6px 20px rgba(255,106,0,0.4); animation: toastIn .25s ease;
+      font-family: 'Nunito', sans-serif; letter-spacing: 0;
+    }
+
     /* ── Mute button (replaces inline style) ── */
     .ek-mute-btn {
       background: none; border: none; cursor: pointer;
@@ -2042,7 +2070,7 @@ function getStyles() {
     .ek-err-pill { background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8888; border-radius: 8px; padding: 10px 14px; font-size: 13px; text-align: center; }
 
     /* ══ ROOM ══ */
-    .ek-room-root { display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse 120% 60% at 50% -10%, #1a3020 0%, #0D0D0D 55%); }
+    .ek-room-root { display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 24px 0; background: radial-gradient(ellipse 120% 60% at 50% -10%, #1a3020 0%, #0D0D0D 55%); }
     .ek-room-wrap { position: relative; z-index: 10; width: min(600px, 94vw); display: flex; flex-direction: column; gap: 28px; padding: 0 20px; }
     .ek-room-header { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 8px; }
     .ek-room-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 2px; color: var(--ek-text); margin: 0; }
@@ -2070,7 +2098,7 @@ function getStyles() {
     .ek-player-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, rgba(255,144,32,0.2), rgba(255,90,31,0.15)); border: 2px solid rgba(255,144,32,0.4); color: var(--ek-ember); z-index: 1; }
     .ek-player-empty .ek-player-avatar { opacity: 0.4; color: rgba(255,255,255,0.3); border-color: rgba(255,255,255,0.1); }
     .ek-player-details { width: 100%; z-index: 1; }
-    .ek-player-name { font-size: 14px; font-weight: 700; color: var(--ek-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ek-player-name { font-size: 14px; font-weight: 700; color: var(--ek-text); overflow-wrap: anywhere; word-break: break-word; line-height: 1.35; }
     .ek-player-empty .ek-player-name { color: var(--ek-text-muted); font-weight: 600; }
     .ek-player-you { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--ek-green); font-weight: 800; letter-spacing: 1px; }
     .ek-player-waiting { font-size: 11px; color: var(--ek-text-muted); font-family: 'DM Mono', monospace; }

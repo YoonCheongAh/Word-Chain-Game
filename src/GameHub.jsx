@@ -684,6 +684,36 @@ const GAMES = [
 const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp, explodingkitten: ExplodingKitten };
 const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro", explodingkitten: "Exploding Kitten" };
 
+/* ── Resume game đang mở sau khi F5 ── */
+const ACTIVE_GAME_KEY = "gh_active_game";
+
+function loadActiveGame() {
+  try {
+    const id = localStorage.getItem(ACTIVE_GAME_KEY);
+    return GAME_COMPONENTS[id] ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveGame(id) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_GAME_KEY, id);
+    else localStorage.removeItem(ACTIVE_GAME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearGameSessionsFromHub() {
+  try {
+    localStorage.removeItem("ludo_session_v1");
+    localStorage.removeItem("ek_session_v1");
+  } catch {
+    /* ignore */
+  }
+}
+
 const MARQUEE_ITEMS = [
   { label: "WORD CHAIN — LIVE", color: "#00e5a0", live: true },
   { label: "WORDLE — LIVE", color: "#64d96a", live: true },
@@ -921,9 +951,20 @@ function Marquee() {
    GAME HUB
 ───────────────────────────────────────────── */
 export default function GameHub() {
-  const [activeGame, setActiveGame] = useState(null);
+  const [activeGame, setActiveGame] = useState(loadActiveGame);
   const [showSettings, setShowSettings] = useState(false);
   const { displayName, avatar, isGoogle, initializing } = useAuth();
+
+  const handlePlay = (id) => {
+    saveActiveGame(id);
+    setActiveGame(id);
+  };
+
+  const handleBackToHub = () => {
+    saveActiveGame(null);
+    clearGameSessionsFromHub();
+    setActiveGame(null);
+  };
 
   /* Inject styles once */
   useEffect(() => {
@@ -944,7 +985,7 @@ export default function GameHub() {
     return (
       <div className="gh-root">
         <div className="gh-back-bar">
-          <button className="gh-back-btn" onClick={() => setActiveGame(null)}>
+          <button className="gh-back-btn" onClick={handleBackToHub}>
             ← Hub
           </button>
           <span className="gh-back-sep">/</span>
@@ -1009,7 +1050,7 @@ export default function GameHub() {
         {/* Cards */}
         <div className="gh-grid">
           {GAMES.map(g => (
-            <GameCard key={g.id} game={g} onPlay={setActiveGame} />
+            <GameCard key={g.id} game={g} onPlay={handlePlay} />
           ))}
         </div>
 

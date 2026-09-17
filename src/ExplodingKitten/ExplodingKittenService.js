@@ -343,7 +343,7 @@ function hasHiddenExplodingKitten(hand) {
   return (hand || []).some(c => c.type === CARD_TYPES.EXPLODING_KITTEN);
 }
 
-function buildResolutionUpdates(pending, game) {
+function buildResolutionUpdates(pending, game, players) {
   switch (pending.type) {
     case "skip":
     case "attack":
@@ -423,15 +423,25 @@ function buildResolutionUpdates(pending, game) {
         "game/nopeWindow": null,
         "game/nopeChain": [],
       };
-    case "mark":
-      return {
+    case "mark": {
+      // Mark KHÔNG kết thúc lượt đi: giữ nguyên lượt & attack stack.
+      // Lá bài đối thủ chỉ được lật (marked: true) SAU khi nope window hết hạn.
+      const updates = {
         "game/phase": "play",
         "game/pendingAction": null,
         "game/nopeWindow": null,
         "game/nopeChain": [],
-        "game/turn": pending.resolvedTurn,
-        "game/attackStack": pending.resolvedAttackStack,
       };
+      if (players && pending.target != null && Number.isInteger(pending.markedIdx)) {
+        const targetHand = [...(players[pending.target]?.hand || [])];
+        if (targetHand[pending.markedIdx]) {
+          updates[`players/${pending.target}/hand`] = targetHand.map((c, i) =>
+            i === pending.markedIdx ? { ...c, marked: true } : c
+          );
+        }
+      }
+      return updates;
+    }
     default:
       return {
         "game/phase": "play",
@@ -583,8 +593,8 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
     } else {
       // Không ai còn Nope → resolve ngay, khỏi chờ
       const resolutionUpdates = isEffective
-        ? buildNopedRestoreUpdates(prev, game, players)
-        : buildResolutionUpdates(prev, game);
+        ? buildNopedRestoreUpdates(prev, game, updatedPlayers)
+        : buildResolutionUpdates(prev, game, updatedPlayers);
 
       const logEntries = isEffective
         ? ["🚫 Action was Noped!", logMsg, ...(game.log || [])]
@@ -1226,7 +1236,8 @@ export async function playCard(roomId, playerRole, cardId, extraData = {}) {
   }
 }
 
-// Step 2 of Mark: mục tiêu chọn xong → ngẫu nhiên lật ngửa 1 lá, mở nope window.
+// Step 2 of Mark: mục tiêu chọn xong → lưu thông tin lá sẽ đánh dấu và mở nope window.
+// Lá bài của đối thủ CHỈ được lật ngửa khi action resolve (hết nope window), không lật trước.
 export async function performMark(roomId, byRole, targetRole) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   const room = snap.val();
@@ -1242,14 +1253,6 @@ export async function performMark(roomId, byRole, targetRole) {
 
   const markedIdx = Math.floor(Math.random() * targetHand.length);
   const markedCardId = targetHand[markedIdx].id;
-  const targetHandMarked = targetHand.map((c, i) =>
-    i === markedIdx ? { ...c, marked: true } : c
-  );
-
-  const attackStack = game.attackStack || 0;
-  const turnsOwed = Math.max(0, attackStack - 1);
-  const nextPlayer =
-    turnsOwed > 0 ? byRole : getNextLivingPlayer(players, byRole);
 
   const pendingObj = {
     type: "mark",
@@ -1258,8 +1261,6 @@ export async function performMark(roomId, byRole, targetRole) {
     markedIdx,
     markedCardId,
     markedCardType: targetHand[markedIdx].type,
-    resolvedTurn: nextPlayer,
-    resolvedAttackStack: turnsOwed,
     savedAttackStack: game.attackStack || 0,
     savedTurn: game.turn,
     nopeWindowPhase: "play",
@@ -1269,7 +1270,6 @@ export async function performMark(roomId, byRole, targetRole) {
   const canNope = anyPlayerHasNope(players, byRole);
 
   const updates = {
-    [`players/${targetRole}/hand`]: targetHandMarked,
     "game/pendingAction": pendingObj,
     "game/log": [logMsg, ...(game.log || [])].slice(0, 20),
   };
@@ -1284,7 +1284,7 @@ export async function performMark(roomId, byRole, targetRole) {
       isCurrentlyNoped: false,
     };
   } else {
-    Object.assign(updates, buildResolutionUpdates(pendingObj, game));
+    Object.assign(updates, buildResolutionUpdates(pendingObj, game, players));
   }
 
   await update(ref(db, `rooms/${roomId}`), updates);
@@ -1313,7 +1313,7 @@ export async function resolveNopeWindow(roomId) {
   }
 
   // Not noped — resolve the action
-  await update(ref(db, `rooms/${roomId}`), buildResolutionUpdates(pending, game));
+  await update(ref(db, `rooms/${roomId}`), buildResolutionUpdates(pending, game, room.players));
 }
 
 export async function drawCard(roomId, playerRole) {

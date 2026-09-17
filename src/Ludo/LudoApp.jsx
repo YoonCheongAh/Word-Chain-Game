@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
 import { playSound, setMuted } from "./Ludosound";
 import {
-    startLudoGame, rollDiceFirebase, movePawn, passTurnFirebase, requestLudoRematch,
+    startLudoGame, rollDiceFirebase, movePawn, passTurnFirebase, requestLudoRematch, rejoinLudo,
     POINTS, START_POSITIONS, PATH, calcAvailableMoves, shouldPassTurn, handleNoMoves,
 } from "./ludoService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
@@ -27,6 +27,38 @@ const COLOR_GLOW = { r: "#ff7b7b", g: "#5eead4", y: "#fde68a", b: "#93c5fd" };
 const COLOR_LABELS = { r: "Đỏ", g: "Xanh lá", y: "Vàng", b: "Xanh dương" };
 const PLAYER_SLOTS = ["player1", "player2", "player3", "player4"];
 const MEDALS = ["🥇", "🥈", "🥉", "4️⃣"];
+
+/* ── Reconnect sau khi F5: lưu session phòng vào localStorage ── */
+const LUDO_SESSION_KEY = "ludo_session_v1";
+const HUB_ACTIVE_GAME_KEY = "gh_active_game";
+
+function loadLudoSession() {
+    try {
+        const raw = localStorage.getItem(LUDO_SESSION_KEY);
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        return s && s.roomId && s.role ? s : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveLudoSession(roomId, role) {
+    try {
+        localStorage.setItem(LUDO_SESSION_KEY, JSON.stringify({ roomId, role, ts: Date.now() }));
+    } catch {
+        /* ignore */
+    }
+}
+
+function clearLudoSession() {
+    try {
+        localStorage.removeItem(LUDO_SESSION_KEY);
+        if (localStorage.getItem(HUB_ACTIVE_GAME_KEY) === "ludo") localStorage.removeItem(HUB_ACTIVE_GAME_KEY);
+    } catch {
+        /* ignore */
+    }
+}
 
 /* ─── STYLES ──────────────────────────────────────────── */
 const STYLES = `
@@ -243,6 +275,7 @@ const STYLES = `
   .ludo-lb-me { font-size:9px; color:var(--c-muted); font-family:'JetBrains Mono',monospace; }
   .ludo-rematch-hint { font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--c-yellow); text-align:center; margin-top:8px; }
   .ludo-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--grad-1); color:#fff; font-family:'JetBrains Mono',monospace; font-size:12px; padding:9px 18px; border-radius:24px; z-index:999; pointer-events:none; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+  .ludo-offline-banner { position:fixed; top:58px; left:50%; transform:translateX(-50%); z-index:120; background:var(--c-red-dim); color:#ffb4b4; border:1px solid #5a2a2a; font-family:'JetBrains Mono',monospace; font-size:11px; padding:8px 16px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.5); animation:floatIn .3s ease; }
   .ludo-dissolved-overlay { position:fixed; inset:0; background:rgba(10,14,26,.94); display:flex; align-items:center; justify-content:center; z-index:100; backdrop-filter:blur(4px); }
   .ludo-dissolved-box { text-align:center; padding:30px 24px; background:var(--c-surface); border:1px solid var(--c-red-dim); border-radius:18px; max-width:280px; }
   .ludo-dissolved-box h2 { font-size:17px; font-weight:800; margin:8px 0 4px; }
@@ -386,6 +419,7 @@ export default function LudoApp() {
     const [boardW, setBoardW] = useState(400);
     const [boardImgOk, setBoardImgOk] = useState(true);
     const [mute, setMute] = useState(false);
+    const [reconnecting, setReconnecting] = useState(() => !!loadLudoSession());
 
     // Animation state: blocks interactions while a pawn is stepping through cells
     const [isAnimating, setIsAnimating] = useState(false);
@@ -460,6 +494,39 @@ export default function LudoApp() {
         });
         return () => unsub();
     }, [roomId, myRole]);
+
+    /* Reconnect tự động sau F5: đọc session đã lưu, nối lại đúng vị trí cũ.
+     * StrictMode chạy effect 2 lần ở dev → dùng cờ `cancelled` để lần đầu
+     * không ghi đè state sau khi component bị tháo.
+     * Đang giữa trận (status "playing") → vào thẳng game, không qua lobby. */
+    useEffect(() => {
+        const session = loadLudoSession();
+        if (!session) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const { role, status } = await rejoinLudo(session.roomId, session.role);
+                if (cancelled) return;
+                setRoomId(session.roomId);
+                setMyRole(role);
+                if (status === "playing") setScreen("game");
+                else setScreen("room");
+            } catch {
+                clearLudoSession();
+            } finally {
+                if (!cancelled) setReconnecting(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    /* Kiểm tra kết nối RTDB khi đang chơi: mất mạng giữa trận thì Firebase
+     * tự kết nối lại theo dõi phòng, màn hình chỉ hiện banner khôi phục. */
+    const [connected, setConnected] = useState(true);
+    useEffect(() => {
+        const unsub = onValue(ref(db, ".info/connected"), snap => setConnected(snap.val() !== false));
+        return () => unsub();
+    }, []);
 
     /* Listen room — detect remote pawn moves so THEY animate step-by-step too.
      * Detection runs synchronously inside the snapshot callback (BEFORE the
@@ -827,6 +894,7 @@ export default function LudoApp() {
         playSound("click");
         const id = await createRoom(fieldName.trim(), { avatar });
         setRoomId(id); setMyRole("player1"); setScreen("room");
+        saveLudoSession(id, "player1");
     }
 
     async function handleJoin() {
@@ -837,6 +905,7 @@ export default function LudoApp() {
         try {
             const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
             setRoomId(inputRoomId.toUpperCase()); setMyRole(slot); setScreen("room");
+            saveLudoSession(inputRoomId.toUpperCase(), slot);
         } catch (e) { setError(e.message); }
     }
 
@@ -856,6 +925,7 @@ export default function LudoApp() {
         setPlayerOnline(roomId, myRole, false);
         setRoomId(""); setMyRole(""); setRoomData(null);
         setScreen("lobby"); setDissolved(false); setError(""); setNotice(null);
+        clearLudoSession();
     }
 
     function handleCopy() {
@@ -937,6 +1007,11 @@ export default function LudoApp() {
      *  RENDER
      * ══════════════════════════════════════════════════════════ */
 
+    /* RECONNECTING */
+    if (reconnecting) return (
+        <div className="ludo-app"><div className="ludo-loading">Đang kết nối lại... 🔄</div></div>
+    );
+
     /* LOBBY */
     if (screen === "lobby") return (
         <div className="ludo-app">
@@ -984,6 +1059,7 @@ export default function LudoApp() {
     if (screen === "room") return (
         <div className="ludo-app">
             {dissolved && <DissolvedOverlay />}
+            {!connected && <div className="ludo-offline-banner">⚠ Mất kết nối — đang tự động kết nối lại...</div>}
             <div className="ludo-card" style={{ marginTop: 28 }}>
                 <div className="ludo-card-title">Mã phòng</div>
                 <div className="ludo-room-code-wrap">
@@ -1123,6 +1199,7 @@ export default function LudoApp() {
     return (
         <div className="ludo-app">
             {dissolved && <DissolvedOverlay />}
+            {!connected && <div className="ludo-offline-banner">⚠ Mất kết nối — đang tự động kết nối lại...</div>}
             <SidebarPanel />
 
             <div className="ludo-game-wrap">
