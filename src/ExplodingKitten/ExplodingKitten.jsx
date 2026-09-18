@@ -620,6 +620,53 @@ const DefuseFx = memo(function DefuseFx({ onDone }) {
   );
 });
 
+const IMPLODE_PARTICLES = [...Array(20)];
+const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, cardImage }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2600);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <div className="ek-implode-overlay" aria-hidden="true">
+      <div className="ek-implode-void" />
+      <div className="ek-implode-ring ek-implode-ring-1" />
+      <div className="ek-implode-ring ek-implode-ring-2" />
+      <div className="ek-implode-ring ek-implode-ring-3" />
+      {IMPLODE_PARTICLES.map((_, i) => {
+        const angle = (i / IMPLODE_PARTICLES.length) * 360;
+        const dist = 140 + (i % 5) * 50;
+        const size = 5 + (i % 4) * 5;
+        return (
+          <div
+            key={i}
+            className="ek-implode-particle"
+            style={{
+              '--angle': `${angle}deg`,
+              '--dist': `${dist}px`,
+              '--size': `${size}px`,
+              '--delay': `${0.1 + (i % 6) * 0.05}s`,
+            }}
+          />
+        );
+      })}
+      <div className="ek-implode-card-pull">
+        <div className="ek-implode-card-inner">
+          <img
+            src={cardImage || '/Resources/exploding kitten/Imploding-Kitten.webp'}
+            alt="Imploding Kitten"
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+        </div>
+      </div>
+      <div className="ek-implode-text">
+        <span className="ek-implode-text-main">IMPLODING…</span>
+        <span className="ek-implode-text-sub">KITTEN REVEALED — FACE UP ON THE DECK</span>
+      </div>
+    </div>
+  );
+});
+
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
@@ -748,6 +795,22 @@ function GameBoardScreen({
     return () => { Object.values(flipTimersRef.current).forEach(clearTimeout); };
   }, []);
 
+  const [showImplodeFx, setShowImplodeFx] = useState(false);
+  const prevPhaseImplodeRef = useRef(phase);
+
+  useEffect(() => {
+    if (prevPhaseImplodeRef.current !== 'place_imploding' && phase === 'place_imploding') {
+      setShowImplodeFx(true);
+      setBombDone(false);
+    }
+    prevPhaseImplodeRef.current = phase;
+  }, [phase]);
+
+  const handleImplodeDone = useCallback(() => {
+    setShowImplodeFx(false);
+    setBombDone(true);
+  }, []);
+
   const prevPhaseRef = useRef(phase);
   const prevAlivesRef = useRef(
     Object.fromEntries(Object.entries(players).map(([r, p]) => [r, p?.alive]))
@@ -777,6 +840,8 @@ function GameBoardScreen({
     SoundManager.play(gameOver === myRole ? 'win' : 'lose');
     // KHÔNG setShowBombFx(false) ở đây — để explosion animation chạy hết
     // handleBombDone sẽ set bombDone=true sau 2800ms → game-over screen tự hiện
+    // Chỉ tắt implode fx (nó không liên quan đến game-over gate)
+    setShowImplodeFx(false);
   }, [gameOver, myRole]);
 
   const [cardFx, setCardFx] = useState(null);
@@ -826,15 +891,18 @@ function GameBoardScreen({
     drawFlyTimersRef.current = [];
   }, []);
 
-  /* ── Cancel draw-fly immediately when bomb/imploding is revealed ── */
+  /* ── Cancel draw-fly immediately when bomb/imploding is revealed, when the
+       drawing player dies (face-up Imploding Kitten → no card reaches hand),
+       or when the game ends. ── */
   useEffect(() => {
-    if (drawFly.active && (phase === 'defuse' || phase === 'place_imploding')) {
+    const selfJustDied = players[myRole]?.alive === false;
+    if (drawFly.active && (phase === 'defuse' || phase === 'place_imploding' || selfJustDied || gameOver)) {
       drawFlyTimersRef.current.forEach(clearTimeout);
       drawFlyTimersRef.current = [];
       setDrawFly({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
       drawFlyBusyRef.current = false;
     }
-  }, [phase, drawFly.active]);
+  }, [phase, drawFly.active, players, myRole, gameOver]);
 
   /* ── Steal-fly: card flies from opponent → hand (favor / pair steal) ── */
   const [stealFly, setStealFly] = useState({ active: false, x: 0, y: 0, dx: 0, dy: 0, phase: null, pileW: 116, pileH: 162, cardW: 208, cardH: 293 });
@@ -941,6 +1009,7 @@ function GameBoardScreen({
 
   const fxBusy =
     !bombFxFinished ||
+    showImplodeFx ||
     !!catomicFx ||
     showSeeFutureFx ||
     showAlterFutureFx;
@@ -1315,6 +1384,12 @@ function GameBoardScreen({
       {showNopedFx && <NopedFlashEffect onDone={() => setShowNopedFx(false)} />}
       {showSeeFutureFx && <SeeFutureFx onDone={() => setShowSeeFutureFx(false)} />}
       {showAlterFutureFx && <AlterFutureFx onDone={() => setShowAlterFutureFx(false)} />}
+      {showImplodeFx && (
+        <ImplodingKittenEffect
+          onDone={handleImplodeDone}
+          cardImage={pending?.bomb?.image || '/Resources/exploding kitten/Imploding-Kitten.webp'}
+        />
+      )}
       {showBombFx && <BombExplosionEffect onDone={handleBombDone} />}
     </div>
   );
