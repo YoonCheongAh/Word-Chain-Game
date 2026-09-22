@@ -105,7 +105,6 @@ export async function joinCaroRoom(roomId, playerName, opts = {}) {
 export async function startCaroGame(roomId) {
   const snap = await get(ref(db, `rooms/${roomId}`));
   const room = snap.val();
-  const mode = room.caro?.mode ?? MODE_FREE;
   const players = room.players || {};
   const roles = Object.keys(players);
 
@@ -278,5 +277,7 @@ export async function setCaroPlayerOnline(roomId, playerRole, online) {
         await update(ref(db, `rooms/${roomId}`), { status: "dissolved" });
       }
     }
-  } catch (e) {}
+  } catch {
+    // Ignore lỗi network khi tab đóng
+  }
 }

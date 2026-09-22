@@ -7,7 +7,6 @@ import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
 import CaroApp from "./Caro/CaroApp";
 import ExplodingKitten from "./ExplodingKitten/ExplodingKitten";
-import noneLogo from "/none.png";
 
 /* ─────────────────────────────────────────────
    STYLES

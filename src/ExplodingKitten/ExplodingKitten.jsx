@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { ref, onValue, update, onDisconnect } from 'firebase/database';
 import { db } from '../firebase';
-import { createRoom, joinRoom, listenRoom, setPlayerOnline, rejoinRoom } from '../roomService';
+import { createRoom, joinRoom, listenRoom, rejoinRoom } from '../roomService';
 import { useAuth } from '../auth/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import { SoundManager } from './ExplodingKittenSound';
@@ -11,7 +11,7 @@ import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, stealTripleCard, closeSeeTheFuture, requestRematch,
   resolveNopeWindow, reorderAlterTheFuture, performMark,
-  CARD_META, CARD_TYPES, CAT_CARD_TYPES, getCardImageStable, tradeFiveCatsForDefuse, placeImplodingKitten,
+  CARD_META, CARD_TYPES, CAT_CARD_TYPES, tradeFiveCatsForDefuse, placeImplodingKitten,
 } from './ExplodingKittenService';
 
 // ── Inject styles at module level, not in useEffect ──
@@ -670,9 +670,9 @@ const ImplodingKittenEffect = memo(function ImplodingKittenEffect({ onDone, card
 /* ─── GAME BOARD ─────────────────────────────────────────────────────── */
 function GameBoardScreen({
   game, players, myRole, myHand, myTurn, phase, pending, nopeWindow,
-  selectedCards, setSelectedCards, onCardClick, onPreSelect, onPlaySelected, onDrawCard,
-  onPlaceBomb, onGiveCard, onStealCard, onStealTriple, onSelectFavorTarget, onChooseFavorTarget,
-  onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, onTradeCatsForDefuse, toast, showToast, roomId, onMarkTarget,
+  selectedCards, onCardClick, onPreSelect, onDrawCard,
+  onPlaceBomb, onGiveCard, onStealCard, onStealTriple,
+  onPlaceImploding, onCloseFuture, onReorderAlterFuture, onRematch, toast, onMarkTarget,
 }) {
   const gameOver = game?.winner;
   const drawPile = game?.drawPile || [];
@@ -1625,7 +1625,7 @@ const AlterFutureFx = memo(function AlterFutureFx({ onDone }) {
 });
 
 /* ─── NOPE WINDOW BANNER ─────────────────────────────────────────────── */
-const NopeWindowBanner = memo(function NopeWindowBanner({ nopeWindow, pending, players, canNope, nopeCard, onNope }) {
+const NopeWindowBanner = memo(function NopeWindowBanner({ nopeWindow, pending, players, canNope, onNope }) {
   const [timeLeft, setTimeLeft] = useState(5);
 
   useEffect(() => {
@@ -1713,7 +1713,6 @@ function PairTargetPanel({ players, myRole, onSteal }) {
   if (chosenTarget) {
     const targetPlayer = players[chosenTarget];
     const hand = targetPlayer?.hand || [];
-    const handCount = hand.length;
     return (
       <div className="ek-panel-inner">
         <div className="ek-panel-icon">🃏</div>

@@ -29,12 +29,6 @@ function getCtx() {
 }
 
 /** Master volume envelope helper */
-function gain(ac, value) {
-    const g = ac.createGain();
-    g.gain.value = value;
-    g.connect(ac.destination);
-    return g;
-}
 
 function osc(ac, type, freq, start, dur, vol = 0.25, dest = null) {
     const o = ac.createOscillator();

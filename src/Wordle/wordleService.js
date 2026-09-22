@@ -1,5 +1,5 @@
 import { db } from "../firebase";
-import { ref, set, update, get, onValue } from "firebase/database";
+import { ref, set, update, get } from "firebase/database";
 
 export const WORD_LIST = [
   "about","above","abuse","actor","acute","admit","adopt","adult","after","again",
@@ -110,7 +110,6 @@ export const MAX_SCORE_PER_WORD = 1000;
 export const MAX_GUESSES        = 5;
 
 // ── CHANGED: supports up to 6 players ─────────────────────
-const MAX_PLAYERS = 6;
 
 export async function startWordleGame(roomId) {
   const words = pickWords(5);
@@ -209,10 +208,10 @@ export async function handleWordTimeout(roomId) {
 
   const snap2    = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
   const updatedPD = snap2.val();
-  await advanceWord(roomId, wordIdx, wordle.words, updatedPD, 0);
+  await advanceWord(roomId, wordIdx, wordle.words, updatedPD);
 }
 
-async function advanceWord(roomId, wordIdx, words, allPD, delayMs = WORD_REVEAL_DELAY_MS) {
+async function advanceWord(roomId, wordIdx, words, allPD) {
   const nextIdx     = wordIdx + 1;
   const hasMoreWords = nextIdx < words.length;
 

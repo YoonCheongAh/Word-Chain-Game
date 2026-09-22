@@ -17,5 +17,11 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Allow the intentional "strip a key via rest omission" idiom,
+      // e.g. const { _origIdx, ...card } = c (drop _origIdx from the object).
+      'no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      'no-empty': ['error', { allowEmptyCatch: false }],
+    },
   },
 ])

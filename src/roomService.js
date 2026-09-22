@@ -92,7 +92,7 @@ export async function setPlayerOnline(roomId, playerRole, online) {
         await update(ref(db, `rooms/${roomId}`), { status: "dissolved" });
       }
     }
-  } catch (e) {
+  } catch {
     // Ignore lỗi network khi tab đóng
   }
 }

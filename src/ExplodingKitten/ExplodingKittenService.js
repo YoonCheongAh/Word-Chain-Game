@@ -1773,8 +1773,6 @@ export async function stealPairCard(roomId, thiefRole, targetRole, cardIndex = n
         "game/log": [`💣 ${logBase2} Used Defuse.`, ...(game.log || [])].slice(0, 20),
       });
     } else {
-      const newPlayers = { ...players, [targetRole]: { ...players[targetRole], alive: false } };
-      const nextPlayer = getNextLivingPlayer(newPlayers, targetRole);
       const aliveRoles = Object.keys(players).filter(r => r !== targetRole && players[r].alive !== false);
       const updates = {
         [`players/${targetRole}/hand`]: [],

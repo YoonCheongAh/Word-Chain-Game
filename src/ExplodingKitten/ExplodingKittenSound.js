@@ -32,16 +32,6 @@ function getCtx() {
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
-function ramp(param, ctx, from, to, startAt, duration) {
-  param.setValueAtTime(from, startAt);
-  param.linearRampToValueAtTime(to, startAt + duration);
-}
-
-function expRamp(param, ctx, from, to, startAt, duration) {
-  param.setValueAtTime(Math.max(from, 0.0001), startAt);
-  param.exponentialRampToValueAtTime(Math.max(to, 0.0001), startAt + duration);
-}
-
 function makeOsc(ctx, type, freq, startAt, stopAt) {
   const osc = ctx.createOscillator();
   osc.type = type;

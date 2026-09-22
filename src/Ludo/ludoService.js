@@ -266,6 +266,8 @@ export async function movePawn(roomId, role, move) {
         newCache[pawn.position] = null;
     }
 
+    let captured = false;
+
     if (!pawn.active) {
         // Entering the board
         pawn.active = true;
@@ -312,6 +314,7 @@ export async function movePawn(roomId, role, move) {
 
             const newSlotPawns = slotPd.pawns.map((p, i) => (i === capIdx ? capPawn : p));
             updates[`ludo/playerData/${slot}/pawns`] = newSlotPawns;
+            captured = true;
         }
     }
 
@@ -340,6 +343,11 @@ export async function movePawn(roomId, role, move) {
     }
 
     await update(ref(db, `rooms/${roomId}`), updates);
+
+    // Return the AUTHORITATIVE outcome so the UI can show correct feedback —
+    // the client-side move.captureId may be stale, but this is what actually
+    // happened on the board.
+    return { captured, winner: allComplete, complete: allComplete };
 }
 
 export async function passTurnFirebase(roomId, role) {
@@ -367,6 +375,13 @@ export async function handleNoMoves(roomId, role) {
     const snap = await get(ref(db, `rooms/${roomId}/ludo`));
     const ludo = snap.val();
     if (!ludo || ludo.currentTurn !== role || ludo.phase !== "move") return;
+
+    // Authoritative re-check: the caller (UI auto-pass) may have been working
+    // from a slightly stale snapshot. If the CURRENT board state actually has a
+    // legal move, don't auto-pass — let the player play it.
+    const pd = ludo.playerData[role];
+    const freshMoves = calcAvailableMoves(pd.pawns, ludo.dice, pd.color, ludo.cachePath);
+    if (freshMoves.length > 0) return;
 
     const dice = ludo.dice;
     const updates = { dice: [], phase: "roll" };

@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
 import { playSound, setMuted } from "./Ludosound";
 import {
-    startLudoGame, rollDiceFirebase, movePawn, passTurnFirebase, requestLudoRematch, rejoinLudo,
-    POINTS, START_POSITIONS, PATH, calcAvailableMoves, shouldPassTurn, handleNoMoves,
+    startLudoGame, rollDiceFirebase, movePawn, requestLudoRematch, rejoinLudo,
+    POINTS, PATH, calcAvailableMoves, shouldPassTurn, handleNoMoves,
 } from "./ludoService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
@@ -23,7 +23,6 @@ const ASSETS = {
 };
 
 const COLOR_HEX = { r: "#ff4d4d", g: "#22c55e", y: "#facc15", b: "#3b82f6" };
-const COLOR_GLOW = { r: "#ff7b7b", g: "#5eead4", y: "#fde68a", b: "#93c5fd" };
 const COLOR_LABELS = { r: "Đỏ", g: "Xanh lá", y: "Vàng", b: "Xanh dương" };
 const PLAYER_SLOTS = ["player1", "player2", "player3", "player4"];
 const MEDALS = ["🥇", "🥈", "🥉", "4️⃣"];
@@ -426,6 +425,7 @@ export default function LudoApp() {
     const [animOverride, setAnimOverride] = useState(null); // { pawnKey, position }
     const animTimeoutsRef = useRef([]);
     const animatingRef = useRef(false); // synchronous mirror of isAnimating
+    const hasMovesRef = useRef(0); // latest legal-move count, re-checked before auto-pass
     const prevRoomRef = useRef(null); // last room snapshot, for remote-move detection
 
     /* ── Display name is driven by auth: Google users are locked to their
@@ -463,6 +463,9 @@ export default function LudoApp() {
         if (!ludo || !myPD || !isMyTurn || phase !== "move" || dice.length === 0) return [];
         return calcAvailableMoves(myPD.pawns, dice, myColor, cachePath);
     })();
+
+    // mirror for the auto-pass timer so it always re-checks the LATEST value
+    hasMovesRef.current = availableMoves.length;
 
     /* CSS inject */
     useEffect(() => {
@@ -644,6 +647,10 @@ export default function LudoApp() {
         if (availableMoves.length > 0) return;
         const getsAnotherRoll = !shouldPassTurn(dice);
         const t = setTimeout(() => {
+            // Re-check with the freshest known legal-move count before giving up
+            // — the effect captured `availableMoves` at schedule time, but a
+            // newly arrived snapshot may have unlocked a move.
+            if (hasMovesRef.current > 0) return;
             playSound("pass");
             setNotice({
                 text: getsAnotherRoll
@@ -872,13 +879,16 @@ export default function LudoApp() {
         // Step the pawn through every intermediate cell, then commit the
         // authoritative move (capture / home / win / turn) to Firebase.
         startMoveAnimation(pawnKey, steps, async () => {
-            if (move.captureId) {
-                playSound("capture");
-                setSpecialFx({ text: "💥 ĂN QUÂN!" });
-                triggerShake();
-            }
             try {
-                await movePawn(roomId, myRole, move);
+                const result = await movePawn(roomId, myRole, move);
+                // Feedback driven by the AUTHORITATIVE outcome, not the
+                // client-side captureId (which can be stale and miss the
+                // capture, or claim one that didn't happen on the board).
+                if (result?.captured) {
+                    playSound("capture");
+                    setSpecialFx({ text: "💥 ĂN QUÂN!" });
+                    triggerShake();
+                }
             } finally {
                 // Re-enable interaction only after the authoritative move is
                 // fully committed to Firebase.
@@ -1252,7 +1262,7 @@ export default function LudoApp() {
                         </div>
                     }
                     <div className="ludo-pawns-layer">
-                        {allPawns.map(({ role, pd, pawn, canMove, key, displayPos, stackIndex }) => {
+                        {allPawns.map(({ pd, pawn, canMove, key, displayPos, stackIndex }) => {
                             const posNow = (animOverride && animOverride.pawnKey === key)
                                 ? animOverride.position
                                 : displayPos;
