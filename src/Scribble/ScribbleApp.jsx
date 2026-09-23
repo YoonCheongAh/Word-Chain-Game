@@ -573,7 +573,7 @@ body.sb-body {
   width: 16px; height: 26px;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.sb-wordlen { color: #f4c430; font-weight: 800; font-size: 13px; }
+.sb-wordlen { color: #f4c430; font-weight: 800; font-size: 25px; }
 .sb-drawer-word {
   background: #f4c430; color: #0d0d0d;
   border-radius: 10px;
@@ -672,15 +672,6 @@ body.sb-body {
 }
 .sb-guess-input:focus { box-shadow: 0 0 0 3px rgba(244,196,48,0.55); }
 .sb-guess-input:disabled { opacity: 0.55; }
-.sb-guess-send {
-  border: none; border-radius: 12px;
-  background: #f4c430; color: #0d0d0d;
-  font-family: var(--sb-font-body); font-weight: 800; font-size: 14px;
-  padding: 0 16px; cursor: pointer; border: 2.5px solid #0d0d0d;
-  transition: transform .14s, filter .12s;
-}
-.sb-guess-send:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-2px); }
-.sb-guess-send:active:not(:disabled) { transform: translateY(1px); }
 
 /* Toolbar */
 .sb-tb {
@@ -1163,7 +1154,7 @@ function WordCell({ game, phase, isDrawer }) {
             ))}
           </span>
         ))}
-        <span className="sb-wordlen">{letterCount(word)} chữ</span>
+        <span className="sb-wordlen">({letterCount(word)})</span>
       </span>
     );
   }
@@ -1894,7 +1885,6 @@ export default function ScribbleApp() {
                       placeholder={outOfHearts && phase === "drawing" ? "💔 Hết tim rồi — chờ vòng sau nhé!" : phase === "drawing" ? "Gõ từ khoá rồi Enter để đoán…" : "…"}
                       disabled={phase !== "drawing" || myCorrect || outOfHearts}
                     />
-                    <button className="sb-guess-send" onClick={handleSubmitGuess} disabled={phase !== "drawing" || myCorrect || outOfHearts}>Gửi</button>
                   </div>
                   <div className="sb-guess-status" style={heartNote ? { color: "#d1363f" } : undefined}>
                     {myCorrect && phase === "drawing" ? "✓ Bạn đã đoán đúng — chờ hết lượt!" : heartNote || "\u00A0"}
