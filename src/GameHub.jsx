@@ -7,6 +7,7 @@ import WordleApp from "./Wordle/wordleapp";
 import LudoApp from "./Ludo/LudoApp";
 import CaroApp from "./Caro/CaroApp";
 import ExplodingKitten from "./ExplodingKitten/ExplodingKitten";
+import ScribbleApp from "./Scribble/ScribbleApp";
 
 /* ─────────────────────────────────────────────
    STYLES
@@ -47,6 +48,7 @@ const HUB_STYLES = `
   }
 
   .gh-tag-orange { background: rgba(249,115,22,0.1); color: #f97316; border: 1px solid rgba(249,115,22,0.22); }
+  .gh-tag-yellow { background: rgba(244,196,48,0.08); color: #f4c430; border: 1px solid rgba(244,196,48,0.25); }
 
   /* Scanlines */
   .gh-root::before {
@@ -521,6 +523,45 @@ const HUB_STYLES = `
     box-shadow: 0 0 5px rgba(74,158,255,.45), inset 0 0 3px rgba(74,158,255,.3);
   }
 
+  /* ── Scribble thumb ── */
+  .sc-thumb {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sc-palette {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .sc-row { display: flex; gap: 6px; }
+  .sc-chip { width: 16px; height: 16px; border-radius: 4px; animation: chipFloat 3.2s ease-in-out infinite; }
+  .sc-chip:nth-child(2) { animation-delay: 0.3s; }
+  .sc-chip:nth-child(3) { animation-delay: 0.6s; }
+  .sc-chip:nth-child(4) { animation-delay: 0.9s; }
+  .sc-brush-ic {
+    font-size: 44px;
+    animation: brushSwing 2.4s ease-in-out infinite;
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,0.45));
+    transform-origin: 20% 90%;
+  }
+  @keyframes brushSwing {
+    0%, 100% { transform: rotate(-8deg) translateY(0); }
+    50%       { transform: rotate(8deg) translateY(-5px); }
+  }
+  @keyframes chipFloat {
+    0%, 100% { transform: translateY(0); opacity: 0.9; }
+    50%       { transform: translateY(-4px); opacity: 1; }
+  }
+
   /* ── Footer ── */
   .gh-footer {
     border-top: 1px solid var(--border);
@@ -678,10 +719,20 @@ const GAMES = [
     tagClass: "gh-tag-orange",
     thumb: "explodingkitten",
   },
+  {
+    id: "scribble",
+    num: "06 / DRAW",
+    title: "Scribble It",
+    desc: "Vẽ & đoán từ · ai nhanh ai giỏi",
+    players: "2–6",
+    accent: "#f4c430",
+    tagClass: "gh-tag-yellow",
+    thumb: "scribble",
+  },
 ];
 
-const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp, explodingkitten: ExplodingKitten };
-const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro", explodingkitten: "Exploding Kitten" };
+const GAME_COMPONENTS = { wordchain: App, wordle: WordleApp, ludo: LudoApp, caro: CaroApp, explodingkitten: ExplodingKitten, scribble: ScribbleApp };
+const GAME_NAMES = { wordchain: "Word Chain", wordle: "Wordle", ludo: "Cờ Cá Ngựa", caro: "Cờ Caro", explodingkitten: "Exploding Kitten", scribble: "Scribble It" };
 
 /* ── Resume game đang mở sau khi F5 ── */
 const ACTIVE_GAME_KEY = "gh_active_game";
@@ -708,6 +759,7 @@ function clearGameSessionsFromHub() {
   try {
     localStorage.removeItem("ludo_session_v1");
     localStorage.removeItem("ek_session_v1");
+    localStorage.removeItem("scribble_session_v1");
   } catch {
     /* ignore */
   }
@@ -719,6 +771,7 @@ const MARQUEE_ITEMS = [
   { label: "CỜ CÁ NGỰA — LIVE", color: "#ff5a5a", live: true },
   { label: "CỜ CARO — LIVE", color: "#e8503a", live: true },
   { label: "EXPLODING KITTEN — LIVE", color: "#f97316", live: true },
+  { label: "SCRIBBLE IT — LIVE", color: "#f4c430", live: true },
 ];
 
 /* ──────────────────────────────────��──────────
@@ -867,6 +920,26 @@ function ExplodingKittenThumb() {
   );
 }
 
+function ScribbleThumb() {
+  return (
+    <div style={{
+      position: "relative", zIndex: 1,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      width: "100%", height: "100%",
+    }}>
+      <img
+        src="/scribble-it/scribble-it-background.webp"
+        alt="Scribble It"
+        style={{
+          width: "100%", height: "100%",
+          objectFit: "cover",
+          opacity: 0.85,
+        }}
+      />
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    GAME CARD
 ───────────────────────────────────────────── */
@@ -897,6 +970,7 @@ function GameCard({ game, onPlay }) {
         {game.thumb === "ludo" && <LudoThumb />}
         {game.thumb === "caro" && <CaroThumb />}
         {game.thumb === "explodingkitten" && <ExplodingKittenThumb />}
+        {game.thumb === "scribble" && <ScribbleThumb />}
 
         <div className="gh-play-pill">▶ Chơi ngay</div>
       </div>

@@ -1,0 +1,101 @@
+// ── Scribble It — Bộ từ vựng mặc định ─────────────────────────
+// Mỗi gói tối thiểu ~40 từ tiếng Việt phổ thông, ưu tiên danh từ cụ thể dễ vẽ.
+// `id` được lưu vào game.wordPackages; `label` hiển thị trên nút chọn chủ đề
+// và tag mô tả chủ đề của từng từ khi drawer chọn từ.
+
+export const WORD_PACKAGES = {
+  animals: {
+    label: "Động vật",
+    words: [
+      "con mèo", "con chó", "con voi", "con hổ", "con sư tử",
+      "con gà", "con vịt", "con lợn", "con trâu", "con bò",
+      "con ngựa", "con cừu", "con dê", "con thỏ", "con chuột",
+      "con cá", "con tôm", "con cua", "con ốc sên", "con bướm",
+      "con ong", "con rắn", "con cá sấu", "chim cánh cụt", "con đại bàng",
+      "chim cú mèo", "con công", "con vẹt", "con bồ câu", "con nhím",
+      "con sóc", "con khỉ", "gấu trúc", "hươu cao cổ", "con ngựa vằn",
+      "con tê giác", "cá heo", "cá mập", "con rùa", "con ếch",
+      "con thằn lằn", "con bạch tuộc", "con sao biển", "con bồng chanh", "con chim sẻ",
+      "con thiên nga", "con công mái", "con báo", "con gấu nâu", "con dơi",
+      "con cá vàng", "con kiến", "con ruồi", "con muỗi", "con gián",
+    ],
+  },
+  food: {
+    label: "Đồ ăn",
+    words: [
+      "bánh mì", "bánh chưng", "bánh pizza", "phở", "bún bò",
+      "cơm tấm", "cơm rang", "xôi gấc", "bánh xèo", "nem rán",
+      "bánh cuốn", "bánh mì sandwich", "bánh hamburger", "khoai tây chiên", "gà rán",
+      "trứng ốp la", "trứng luộc", "sữa tươi", "sữa chua", "miếng bơ",
+      "phô mai", "cây kem", "kem ốc quế", "chè ba màu", "sữa chua nếp cẩm",
+      "xoài", "chuối", "quả táo", "quả cam", "quả dừa",
+      "dưa hấu", "chùm nho", "dâu tây", "quả đu đủ", "quả mít",
+      "quả sầu riêng", "quýt", "bưởi", "quả ổi", "bắp ngô",
+      "củ cà rốt", "quả bí đỏ", "dưa chuột", "cà chua", "bông cải",
+      "cây nấm", "củ hành", "củ tỏi", "trái ớt", "rau muống",
+      "quả cherry", "quả lê", "quả đào", "quả mận", "hộp sữa chua",
+    ],
+  },
+  city: {
+    label: "Cuộc sống ở thành phố",
+    words: [
+      "xe buýt", "xe taxi", "xe đạp", "xe máy", "ô tô",
+      "tàu điện", "tàu hỏa", "máy bay", "cây cầu", "cầu vượt",
+      "ngã tư", "đèn giao thông", "công viên", "cây xanh", "bồn hoa",
+      "tòa nhà cao tầng", "chung cư", "trung tâm thương mại", "siêu thị", "khu chợ",
+      "quán cà phê", "nhà hàng", "trường học", "bệnh viện", "trạm xăng",
+      "ngân hàng", "rạp chiếu phim", "bảo tàng", "thư viện", "bưu điện",
+      "đồn cảnh sát", "trạm cứu hỏa", "cột đèn", "vỉa hè", "biển quảng cáo",
+      "đài phun nước", "bờ hồ", "ghế đá", "xe cứu thương", "xe cứu hỏa",
+      "xe tải", "xe tắc xi", "người bán hàng rong", "phố đi bộ", "chợ đêm",
+      "thang máy", "thang cuốn", "đường hầm", "trạm xe buýt", "điện thoại cột",
+    ],
+  },
+  body: {
+    label: "Cơ thể",
+    words: [
+      "bàn tay", "bàn chân", "ngón tay", "ngón chân", "cánh tay",
+      "cái chân", "đầu gối", "cái vai", "cái cổ", "cái đầu",
+      "mái tóc", "khuôn mặt", "đôi mắt", "lông mày", "lông mi",
+      "cái mũi", "cái miệng", "đôi môi", "cái tai", "cái hàm",
+      "hàm răng", "cái lưỡi", "cổ tay", "khuỷu tay", "bắp chân",
+      "bắp tay", "cái bụng", "cái lưng", "ngực", "trái tim",
+      "lá phổi", "cái dạ dày", "bộ não", "khung xương", "cái rốn",
+      "móng tay", "đôi má", "cái cằm", "cái trán", "trái thận",
+      "gương mặt tươi cười", "đôi bàn chân bé", "bàn tay nắm", "ngón tay cái", "đôi mắt to",
+      "cái mũi dài", "đôi tai thỏ", "mái tóc xoăn", "bộ ria mép", "đôi lông mày dày",
+    ],
+  },
+  emotion: {
+    label: "Cảm xúc",
+    words: [
+      "nụ cười", "tiếng cười", "khóc", "buồn bã", "cơn giận",
+      "sợ hãi", "ngạc nhiên", "xấu hổ", "tự hào", "ghen tị",
+      "tình yêu", "mỉm cười", "cười khúc khích", "khóc nức nở", "giận dỗi",
+      "hờn dỗi", "cáu gắt", "mệt mỏi", "buồn ngủ", "cái ngáp",
+      "hạnh phúc", "phấn khích", "hào hứng", "háo hức", "lo lắng",
+      "bồn chồn", "bối rối", "hồi hộp", "thất vọng", "hối tiếc",
+      "bình yên", "thư giãn", "thoải mái", "cô đơn", "buồn chán",
+      "chán nản", "ngại ngùng", "lúng túng", "hoảng hốt", "cuống cuồng",
+      "vui vẻ", "phấn khởi", "sung sướng", "nhún nhảy", "cười tươi",
+      "nhíu mày", "trợn mắt", "hít thở sâu", "vỗ tay", "ôm chặt",
+    ],
+  },
+  objects: {
+    label: "Đồ vật",
+    words: [
+      "cái bàn", "cái ghế", "cái giường", "cái tủ", "cái đèn",
+      "cây quạt", "cái tivi", "cái tủ lạnh", "cái bếp ga", "cái nồi",
+      "cái chảo", "cái bát", "cái đĩa", "cái chén", "cái ly",
+      "bình nước", "cái ấm trà", "cái thìa", "đôi đũa", "cái nĩa",
+      "con dao", "cái kéo", "cây búa", "cây đinh", "cuốn sách",
+      "quyển vở", "cây bút chì", "cục tẩy", "thước kẻ", "chiếc đồng hồ",
+      "cái điện thoại", "máy tính", "cái loa", "tai nghe", "cái gối",
+      "tấm nệm", "cái chăn", "tấm rèm", "cái gương", "bàn chải đánh răng",
+      "tuýp kem đánh răng", "khăn mặt", "bánh xà phòng", "cây chổi", "cái xô",
+      "cây lau nhà", "chiếc ô", "cái mũ", "cái áo", "cái quần",
+      "đôi giày", "đôi dép", "chiếc ba lô", "cái ví", "chiếc nhẫn",
+      "cái vòng cổ", "đồng hồ báo thức", "chai nước suối", "cái bật lửa", "cái túi xách",
+    ],
+  },
+};
