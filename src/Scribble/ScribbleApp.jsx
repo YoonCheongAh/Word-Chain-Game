@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import UserAvatar from "../components/UserAvatar";
 import DrawingToolbar from "./DrawingToolbar";
 import DrawingCanvas from "./DrawingCanvas";
+import { playSfx, toggleMute, isMuted } from "./ScribbleSound";
 import {
   MODE_CLASSIC,
   ROUND_END_MS,
@@ -275,6 +276,23 @@ body.sb-body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 .sb-err { color: #b5121b; font-weight: 800; font-size: 13px; margin-top: 8px; }
+
+.sb-mute {
+  position: fixed;
+  bottom: 16px; right: 16px;
+  z-index: 700;
+  width: 46px; height: 46px;
+  border-radius: 14px;
+  border: 2.5px solid #0d0d0d;
+  background: #fff;
+  font-size: 20px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.25);
+  transition: transform .15s, box-shadow .15s, opacity .12s;
+}
+.sb-mute:hover { transform: translateY(-2px); box-shadow: 0 6px 0 rgba(0,0,0,0.25); }
+.sb-mute:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.25); }
 
 /* ── Shared buttons ── */
 .sb-btn {
@@ -1025,21 +1043,24 @@ function Landing({ onJoin, onPlay, onOptions, onExit, name, avatar }) {
       {dots.map((d, i) => (
         <span key={i} className="sb-dot" style={{ left: `${d.left}%`, top: `${d.top}%`, width: d.r, height: d.r, opacity: d.o, animationDelay: `${d.delay}s` }} />
       ))}
-      <header className="sb-land-head">
-        <div className="sb-brush">
-          <span className="sb-brush-splat" aria-hidden="true" />
-          <span className="sb-brush-name">Scribble it!</span>
-          <svg className="sb-brush-tool" viewBox="0 0 40 64" aria-hidden="true">
-            <rect x="14" y="0" width="12" height="18" rx="3" fill="#0d0d0d" />
-            <rect x="9" y="15" width="22" height="11" rx="3" fill="#f4c430" />
-            <path d="M13 25 L27 25 L22 60 Q20 64 18 60 Z" fill="#8a5a2b" />
-          </svg>
-        </div>
-        <button className="sb-user-chip" onClick={onOptions} title="Hồ sơ của bạn">
-          <span className="sb-ava"><UserAvatar name={name} avatar={chipAvatar} className="sb-ava" /></span>
-          {name}
-        </button>
-      </header>
+        <header className="sb-land-head">
+          <div className="sb-brush">
+            <span className="sb-brush-splat" aria-hidden="true" />
+            <span className="sb-brush-name">Scribble it!</span>
+            <svg className="sb-brush-tool" viewBox="0 0 40 64" aria-hidden="true">
+              <rect x="14" y="0" width="12" height="18" rx="3" fill="#0d0d0d" />
+              <rect x="9" y="15" width="22" height="11" rx="3" fill="#f4c430" />
+              <path d="M13 25 L27 25 L22 60 Q20 64 18 60 Z" fill="#8a5a2b" />
+            </svg>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <MuteButton />
+            <button className="sb-user-chip" onClick={onOptions} title="Hồ sơ của bạn">
+              <span className="sb-ava"><UserAvatar name={name} avatar={chipAvatar} className="sb-ava" /></span>
+              {name}
+            </button>
+          </div>
+        </header>
       <div className="sb-land-body">
         <div className="sb-menu">
           <button className="sb-menu-btn sb-mb-yellow" onClick={onPlay}>Chơi ngay</button>
@@ -1056,6 +1077,20 @@ function Landing({ onJoin, onPlay, onOptions, onExit, name, avatar }) {
 
 function Loading() {
   return <div className="sb-loading">Scribble It · đang kết nối…</div>;
+}
+
+function MuteButton() {
+  const [muted, setMutedState] = useState(isMuted());
+  return (
+    <button
+      className="sb-mute"
+      onClick={() => setMutedState(toggleMute())}
+      title={muted ? "🔇 Bật âm thanh" : "🔊 Tắt âm thanh"}
+      aria-label={muted ? "Bật âm thanh" : "Tắt âm thanh"}
+    >
+      {muted ? "🔇" : "🔊"}
+    </button>
+  );
 }
 
 function PlayerLobbyCard({ player, slot, mySlot }) {
@@ -1256,6 +1291,16 @@ export default function ScribbleApp() {
   const chatLogRef = useRef(null);
   const toastTimer = useRef(null);
   const heartNoteTimer = useRef(null);
+  const sfxRef = useRef({
+    round: 0,
+    turnKey: "",
+    hintCount: 0,
+    lastChatKey: "",
+    joinCount: -1,
+    lastPhase: "",
+    lastTick: -1,
+    finishedPlayed: false,
+  });
 
   useEffect(() => {
     roomIdRef.current = roomId;
@@ -1370,10 +1415,94 @@ export default function ScribbleApp() {
     const prev = flashRef.current;
     const fresh = order.filter(s => !prev[s]);
     if (fresh.length) {
+      playSfx("correct");
       const untilT = Date.now() + 1600;
       setFlashUntil(m => ({ ...m, ...Object.fromEntries(fresh.map(s => [s, untilT])) }));
     }
   }, [game?.correctOrder]);
+
+  /* ── SOUND FX ─────────────────────────────────────────────── */
+
+  /* Vòng mới bắt đầu (round) + đến lượt mình vẽ (turn) */
+  useEffect(() => {
+    if (!game || roomData?.status !== "playing") return;
+    const round = game.round || 1;
+    const phase = game.phase;
+    if (round !== sfxRef.current.round) {
+      sfxRef.current.round = round;
+      if (phase === "drawing" || phase === "choosingWord") playSfx("round");
+    }
+    if (phase === "drawing" || phase === "choosingWord") {
+      const turnKey = `${game.round}|${game.turnIndex ?? 0}|${game.drawerSlot}`;
+      if (turnKey !== sfxRef.current.turnKey) {
+        sfxRef.current.turnKey = turnKey;
+        if (game.drawerSlot === mySlot) playSfx("turn");
+      }
+    }
+  }, [game, roomData?.status, mySlot]);
+
+  /* Mở gợi ý chữ cái (hint) */
+  const gamePhase = game?.phase;
+  const hintCount = (game?.hintsRevealed || []).length;
+  useEffect(() => {
+    if (gamePhase !== "drawing") return;
+    if (hintCount > sfxRef.current.hintCount) {
+      sfxRef.current.hintCount = hintCount;
+      playSfx("hint");
+    }
+  }, [gamePhase, hintCount]);
+
+  /* Hiện đáp án cuối lượt (reveal) */
+  const roomStatus = roomData?.status;
+  useEffect(() => {
+    if (roomStatus !== "playing") return;
+    if (gamePhase !== sfxRef.current.lastPhase) {
+      sfxRef.current.lastPhase = gamePhase;
+      if (gamePhase === "roundEnd") playSfx("reveal");
+    }
+  }, [gamePhase, roomStatus]);
+
+  /* Tick đếm ngược 10 giây cuối lượt vẽ */
+  useEffect(() => {
+    if (!game || game.phase !== "drawing") return;
+    const t = Date.now();
+    const c = Math.max(0, Math.ceil(((game.roundStartedAt || t) + (game.roundDuration || 0) * 1000 - t) / 1000));
+    if (c >= 1 && c <= 10 && c !== sfxRef.current.lastTick) {
+      sfxRef.current.lastTick = c;
+      playSfx("tick");
+    }
+  }, [game, now]);
+
+  /* Chat mới đến từ người khác */
+  useEffect(() => {
+    if (!chat.length) return;
+    const last = chat[chat.length - 1];
+    if (last && last.key !== sfxRef.current.lastChatKey) {
+      sfxRef.current.lastChatKey = last.key;
+      if (last.type === "chat" && last.slot !== mySlot) playSfx("chat");
+    }
+  }, [chat, mySlot]);
+
+  /* Có người chơi mới vào phòng chờ */
+  const playerCount = roomData ? Object.keys(roomData.players || {}).length : 0;
+  useEffect(() => {
+    if (sfxRef.current.joinCount >= 0 && playerCount > sfxRef.current.joinCount
+        && (roomStatus === "waiting" || roomStatus === "ready")) {
+      playSfx("join");
+    }
+    sfxRef.current.joinCount = playerCount;
+  }, [playerCount, roomStatus]);
+
+  /* Kết thúc game: thắng / thua */
+  useEffect(() => {
+    if (roomStatus !== "finished" || !game || sfxRef.current.finishedPlayed) return;
+    sfxRef.current.finishedPlayed = true;
+    const scores = game.scores || {};
+    const myScore = scores[mySlot] || 0;
+    const others = Object.keys(scores).filter(s => s !== mySlot);
+    const isWinner = others.every(s => myScore >= (scores[s] || 0));
+    playSfx(isWinner ? "win" : "lose");
+  }, [roomStatus, game, mySlot]);
 
   /* ── Auto scroll chat ── */
   useEffect(() => {
@@ -1454,6 +1583,7 @@ export default function ScribbleApp() {
     if (!settings.wordPackages.length && !customWords.length) {
       return showToast("Chọn ít nhất 1 gói từ hoặc nhập từ tuỳ chỉnh!");
     }
+    playSfx("start");
     await startScribbleGame(roomId, {
       mode: settings.mode,
       maxRounds: Number(settings.maxRounds),
@@ -1475,10 +1605,12 @@ export default function ScribbleApp() {
 
   function handleCopy(text) {
     navigator.clipboard?.writeText(text).catch(() => { });
+    playSfx("click");
     showToast("✓ Đã copy!");
   }
 
   async function handleChoose(choice) {
+    playSfx("selectWord");
     await chooseWord(roomId, mySlot, choice);
   }
 
@@ -1492,12 +1624,15 @@ export default function ScribbleApp() {
     const left = Number.isFinite(res?.game?.hearts?.[mySlot]) ? res.game.hearts[mySlot] : 0;
     if (code === "correct") await sendChatMessage(roomId, mySlot, p.name || fieldName, text, "correct");
     else if (code === "close") {
+      playSfx("close");
       await sendChatMessage(roomId, mySlot, p.name || fieldName, text, "close");
       flashHeartNote(`💔 Gần đúng — -1 tim (còn ${left})`);
     } else if (code === "wrong") {
+      playSfx("wrong");
       await sendChatMessage(roomId, mySlot, p.name || fieldName, text, "guess");
       flashHeartNote(`💔 Sai — -1 tim (còn ${left})`);
     } else if (code === "locked") {
+      playSfx("lockout");
       await sendChatMessage(roomId, mySlot, p.name || fieldName, "💔 hết tim rồi — không đoán được nữa!", "sys");
       flashHeartNote("💔 Hết tim rồi — không được đoán nữa!");
       clearTypingIndicator(roomId, mySlot);
@@ -1550,7 +1685,7 @@ export default function ScribbleApp() {
       <div className="sb-root">
         {pendingJoin ? <Loading /> : (
           <>
-            <Landing name={fieldName} avatar={avatar} onPlay={handleCreate} onJoin={() => { setError(""); setJoinOpen(true); }} onOptions={() => setOptsOpen(true)} onExit={() => showToast("Dùng nút ← Hub ở góc trái để thoát")} />
+            <Landing name={fieldName} avatar={avatar} onPlay={() => { playSfx("click"); handleCreate(); }} onJoin={() => { playSfx("click"); setError(""); setJoinOpen(true); }} onOptions={() => { playSfx("click"); setOptsOpen(true); }} onExit={() => { playSfx("click"); showToast("Dùng nút ← Hub ở góc trái để thoát"); }} />
             {joinOpen && (
               <>
                 <div className="sb-pop-glow" onClick={() => setJoinOpen(false)} />
@@ -1586,12 +1721,13 @@ export default function ScribbleApp() {
     );
   }
 
-  if (!roomData) return <div className="sb-root"><Loading /></div>;
+  if (!roomData) return <div className="sb-root"><MuteButton /><Loading /></div>;
 
   /* ── Phòng đã đóng ── */
   if (roomData.status === "dissolved") {
     return (
       <div className="sb-root">
+        <MuteButton />
         <div className="sb-dissolved">
           <div className="sb-dissolved-box">
             <div style={{ fontSize: 38 }}>🚪</div>
@@ -1608,6 +1744,7 @@ export default function ScribbleApp() {
   if (roomData.status === "finished") {
     return (
       <div className="sb-root">
+        <MuteButton />
         <ResultsView roomData={roomData} game={game} mySlot={mySlot} onRematch={handleRematch} onExit={exitToLanding} />
         {toast && <div className="sb-toast">{toast}</div>}
       </div>
@@ -1623,6 +1760,7 @@ export default function ScribbleApp() {
     const cur = settings.randomTopic && step === 2 ? 3 : step;
     return (
       <div className="sb-root">
+        <MuteButton />
         <div className="sb-room">
           <div className="sb-stepper">
             {visibleSteps.map(s => {
@@ -1796,6 +1934,7 @@ export default function ScribbleApp() {
 
     return (
       <div className="sb-root">
+        <MuteButton />
         <div className="sb-game">
           <div className="sb-topbar">
             <div className="sb-round">Vòng {game.round}/{game.maxRounds} · {DIFFICULTY[game.difficulty]?.label}</div>
@@ -1855,9 +1994,9 @@ export default function ScribbleApp() {
                       onColorChange={setActiveColor}
                       activeSize={activeSize}
                       onSizeChange={setActiveSize}
-                      onUndo={() => undoLastStroke(roomId, mySlot)}
-                      onRedo={() => redoStroke(roomId, mySlot)}
-                      onClear={() => clearStrokes(roomId, mySlot)}
+                      onUndo={() => { playSfx("undo"); undoLastStroke(roomId, mySlot); }}
+                      onRedo={() => { playSfx("redo"); redoStroke(roomId, mySlot); }}
+                      onClear={() => { playSfx("clear"); clearStrokes(roomId, mySlot); }}
                       canUndo={canUndo}
                       canRedo={canRedo}
                       onToggleChat={() => chatLogRef.current?.scrollTo?.({ top: 1e9 })}

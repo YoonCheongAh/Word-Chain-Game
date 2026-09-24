@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { SIZE_LEVELS } from "./scribbleService";
+import { playSfx } from "./ScribbleSound";
 
 /* ─────────────────────────────────────────────
    DrawingCanvas — <canvas> thuần dùng Pointer Events
@@ -211,6 +212,7 @@ export default function DrawingCanvas({
     const size = SIZE_LEVELS[Math.max(0, Math.min(2, p.activeSize))];
 
     if (p.activeTool === "fill") {
+      playSfx("fill");
       const s = sizeRef.current;
       const ctx = imgRef.current.getContext("2d");
       floodFill(ctx, s.w, s.h, Math.round(pt.x * s.w), Math.round(pt.y * s.h), p.activeColor);
@@ -220,6 +222,9 @@ export default function DrawingCanvas({
     }
 
     e.preventDefault();
+    if (p.activeTool === "pen" || p.activeTool === "eraser") {
+      playSfx(p.activeTool === "eraser" ? "eraser" : "pencil");
+    }
     canRef.current.setPointerCapture(e.pointerId);
     pendingRef.current = {
       tool: p.activeTool,
@@ -251,6 +256,7 @@ export default function DrawingCanvas({
     const pen = pendingRef.current;
     if (!pen) return;
     pendingRef.current = null;
+    if (shapeTools.has(pen.tool)) playSfx("shape");
     const s = sizeRef.current;
     const ctx = imgRef.current.getContext("2d");
     if (pen.points.length > 1) drawPenStroke(ctx, pen, s.w, s.h);
