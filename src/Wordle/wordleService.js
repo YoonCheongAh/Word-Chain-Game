@@ -1,5 +1,5 @@
 import { db } from "../firebase";
-import { ref, set, update, get } from "firebase/database";
+import { ref, set, update, get, runTransaction } from "firebase/database";
 
 export const WORD_LIST = [
   "about","above","abuse","actor","acute","admit","adopt","adult","after","again",
@@ -83,6 +83,49 @@ export const WORD_LIST = [
 
 export const WORD_REVEAL_DELAY_MS = 4000;
 
+const DICTIONARY_TIMEOUT_MS = 500;
+const answerWords = new Set(WORD_LIST);
+const validGuessCache = new Set();
+const invalidGuessCache = new Set();
+const guessValidationPromises = new Map();
+
+export function isGuessValid(guess) {
+  const word = guess.trim().toLowerCase();
+  if (!/^[a-z]{5}$/.test(word)) return Promise.resolve(false);
+  if (answerWords.has(word) || validGuessCache.has(word)) return Promise.resolve(true);
+  if (invalidGuessCache.has(word)) return Promise.resolve(false);
+
+  const pending = guessValidationPromises.get(word);
+  if (pending) return pending;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DICTIONARY_TIMEOUT_MS);
+  const request = fetch(`/api/dictionary/${encodeURIComponent(word)}`, {
+    signal: controller.signal,
+  })
+    .then(res => {
+      if (res.status === 404) {
+        invalidGuessCache.add(word);
+        return false;
+      }
+      validGuessCache.add(word);
+      return true;
+    })
+    .catch(() => {
+      validGuessCache.add(word);
+      return true;
+    })
+    .finally(() => {
+      clearTimeout(timeout);
+      if (guessValidationPromises.get(word) === request) {
+        guessValidationPromises.delete(word);
+      }
+    });
+
+  guessValidationPromises.set(word, request);
+  return request;
+}
+
 function pickWords(count = 5) {
   const shuffled = [...WORD_LIST].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
@@ -138,100 +181,124 @@ export async function startWordleGame(roomId) {
   });
 }
 
-export async function submitGuess(roomId, playerRole, guess) {
-  const snap  = await get(ref(db, `rooms/${roomId}`));
-  const room  = snap.val();
-  const wordle = room.wordle;
-  const pd     = wordle.playerData[playerRole];
+export async function submitGuess(roomId, playerRole, guess, expectedWordStartedAt = null) {
+  const roomRef = ref(db, `rooms/${roomId}`);
+  const normalizedGuess = guess.toLowerCase();
+  const result = await runTransaction(roomRef, room => {
+    const wordle = room?.wordle;
+    const playerData = wordle?.playerData;
+    const pd = playerData?.[playerRole];
+    if (!wordle || !playerData || !pd || pd.wordDone || pd.done || wordle.roundOver) return;
+    if (expectedWordStartedAt !== null && wordle.wordStartedAt !== expectedWordStartedAt) return;
 
-  if (pd.wordDone || pd.done) return;
+    const wordIdx = wordle.currentWordIdx ?? 0;
+    const answer = wordle.words?.[wordIdx];
+    if (!answer) return;
+    const guessResult = checkGuess(normalizedGuess, answer);
+    const isSolved = guessResult.every(r => r === "correct");
+    const newGuesses = [...(pd.guesses || []), { word: normalizedGuess, result: guessResult }];
+    const exhausted = newGuesses.length >= MAX_GUESSES;
+    const wordDone = isSolved || exhausted;
 
-  const wordIdx = wordle.currentWordIdx ?? 0;
-  const answer  = wordle.words[wordIdx];
-  const result  = checkGuess(guess.toLowerCase(), answer);
-  const isSolved = result.every(r => r === "correct");
+    let wordScore = 0;
+    if (isSolved) {
+      const elapsed = Date.now() - wordle.wordStartedAt;
+      wordScore = Math.max(0, Math.round(MAX_SCORE_PER_WORD * (1 - elapsed / WORD_TIME_MS)));
+    }
 
-  const newGuesses = [...(pd.guesses || []), { word: guess.toLowerCase(), result }];
-  const exhausted  = newGuesses.length >= MAX_GUESSES;
-  const wordDone   = isSolved || exhausted;
+    playerData[playerRole] = {
+      ...pd,
+      guesses: newGuesses,
+      wordDone,
+      score: wordDone ? (pd.score || 0) + wordScore : (pd.score || 0),
+      wordsCompleted: wordDone ? (pd.wordsCompleted || 0) + 1 : (pd.wordsCompleted || 0),
+    };
 
-  let wordScore = 0;
-  if (isSolved) {
-    const elapsed = Date.now() - wordle.wordStartedAt;
-    wordScore = Math.max(0, Math.round(MAX_SCORE_PER_WORD * (1 - elapsed / WORD_TIME_MS)));
-  }
+    const allWordDone = Object.values(playerData).every(player => player?.wordDone);
+    if (allWordDone) {
+      const nextIdx = wordIdx + 1;
+      if (nextIdx < wordle.words.length) {
+        wordle.currentWordIdx = nextIdx;
+        wordle.wordStartedAt = Date.now();
+        Object.values(playerData).forEach(player => {
+          if (player) {
+            player.guesses = [];
+            player.wordDone = false;
+          }
+        });
+      } else {
+        wordle.roundOver = true;
+        Object.values(playerData).forEach(player => {
+          if (player) player.done = true;
+        });
+      }
+    }
 
-  const updates = {};
-  updates[`wordle/playerData/${playerRole}/guesses`]  = newGuesses;
-  updates[`wordle/playerData/${playerRole}/wordDone`] = wordDone;
-  if (wordDone) {
-    updates[`wordle/playerData/${playerRole}/score`]          = (pd.score || 0) + wordScore;
-    updates[`wordle/playerData/${playerRole}/wordsCompleted`] = (pd.wordsCompleted || 0) + 1;
-  }
+    return room;
+  });
 
-  await update(ref(db, `rooms/${roomId}`), updates);
-
-  const snap2  = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
-  const allPD  = snap2.val();
-  const allWordDone = Object.values(allPD).every(p => p.wordDone);
-
-  if (allWordDone) {
-    await advanceWord(roomId, wordIdx, wordle.words, allPD);
-  }
+  return result !== undefined;
 }
 
 export async function handleWordTimeout(roomId) {
-  const snap  = await get(ref(db, `rooms/${roomId}`));
-  const room  = snap.val();
-  const wordle = room?.wordle;
-  if (!wordle || wordle.roundOver) return;
+  const roomRef = ref(db, `rooms/${roomId}`);
+  const startedAt = (await get(roomRef)).val()?.wordle?.wordStartedAt;
+  if (!startedAt) return;
 
-  const elapsed = Date.now() - wordle.wordStartedAt;
-  if (elapsed < WORD_TIME_MS - 2000) return;
+  const marked = await runTransaction(roomRef, room => {
+    const wordle = room?.wordle;
+    if (!wordle || wordle.roundOver || wordle.wordStartedAt !== startedAt) return;
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < WORD_TIME_MS - 2000) return;
 
-  const wordIdx = wordle.currentWordIdx ?? 0;
-  const allPD   = wordle.playerData;
-
-  const updates = {};
-  Object.entries(allPD).forEach(([role, pd]) => {
-    if (!pd.wordDone) {
-      updates[`wordle/playerData/${role}/wordDone`]        = true;
-      updates[`wordle/playerData/${role}/wordsCompleted`]  = (pd.wordsCompleted || 0) + 1;
-    }
+    const playerData = wordle.playerData || {};
+    let changed = false;
+    Object.values(playerData).forEach(pd => {
+      if (pd && !pd.wordDone) {
+        pd.wordDone = true;
+        pd.wordsCompleted = (pd.wordsCompleted || 0) + 1;
+        changed = true;
+      }
+    });
+    return changed ? room : undefined;
   });
-
-  if (Object.keys(updates).length > 0) {
-    await update(ref(db, `rooms/${roomId}`), updates);
-  }
+  if (!marked) return;
 
   await new Promise(resolve => setTimeout(resolve, WORD_REVEAL_DELAY_MS));
-
-  const snap2    = await get(ref(db, `rooms/${roomId}/wordle/playerData`));
-  const updatedPD = snap2.val();
-  await advanceWord(roomId, wordIdx, wordle.words, updatedPD);
+  await advanceWord(roomId, undefined, undefined, startedAt);
 }
 
-async function advanceWord(roomId, wordIdx, words, allPD) {
-  const nextIdx     = wordIdx + 1;
-  const hasMoreWords = nextIdx < words.length;
+async function advanceWord(roomId, wordIdx, words, expectedWordStartedAt) {
+  const result = await runTransaction(ref(db, `rooms/${roomId}`), room => {
+    const wordle = room?.wordle;
+    if (!wordle || wordle.roundOver) return;
+    if (wordIdx !== undefined && wordle.currentWordIdx !== wordIdx) return;
+    if (expectedWordStartedAt !== null && wordle.wordStartedAt !== expectedWordStartedAt) return;
 
-  if (hasMoreWords) {
-    const resetUpdates = {
-      "wordle/currentWordIdx": nextIdx,
-      "wordle/wordStartedAt": Date.now(),
-    };
-    Object.keys(allPD).forEach(role => {
-      resetUpdates[`wordle/playerData/${role}/guesses`]  = [];
-      resetUpdates[`wordle/playerData/${role}/wordDone`] = false;
-    });
-    await update(ref(db, `rooms/${roomId}`), resetUpdates);
-  } else {
-    const doneUpdates = { "wordle/roundOver": true };
-    Object.keys(allPD).forEach(role => {
-      doneUpdates[`wordle/playerData/${role}/done`] = true;
-    });
-    await update(ref(db, `rooms/${roomId}`), doneUpdates);
-  }
+    const playerData = wordle.playerData || {};
+    if (!Object.values(playerData).every(player => player?.wordDone)) return;
+
+    const nextIdx = (wordle.currentWordIdx ?? 0) + 1;
+    const gameWords = words || wordle.words || [];
+    if (nextIdx < gameWords.length) {
+      wordle.currentWordIdx = nextIdx;
+      wordle.wordStartedAt = Date.now();
+      Object.values(playerData).forEach(player => {
+        if (player) {
+          player.guesses = [];
+          player.wordDone = false;
+        }
+      });
+    } else {
+      wordle.roundOver = true;
+      Object.values(playerData).forEach(player => {
+        if (player) player.done = true;
+      });
+    }
+    return room;
+  });
+
+  return result !== undefined;
 }
 
 export async function requestWordleRematch(roomId, playerRole) {

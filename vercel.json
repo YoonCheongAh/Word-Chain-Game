@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/dictionary/:word",
+      "destination": "https://api.dictionaryapi.dev/api/v2/entries/en/:word"
+    }
+  ]
+}

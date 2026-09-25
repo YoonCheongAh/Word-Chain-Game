@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { animate, stagger } from "animejs";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
-import { startWordleGame, submitGuess, checkGuess, requestWordleRematch, handleWordTimeout, WORD_TIME_MS, MAX_SCORE_PER_WORD, MAX_GUESSES } from "./wordleService";
+import { startWordleGame, submitGuess, checkGuess, isGuessValid, requestWordleRematch, handleWordTimeout, WORD_TIME_MS, MAX_SCORE_PER_WORD, MAX_GUESSES } from "./wordleService";
 import { ref, onValue, onDisconnect, update } from "firebase/database";
 import { db } from "../firebase";
 import { useAuth } from "../auth/AuthContext";
 import UserAvatar from "../components/UserAvatar";
+import { playSfx, toggleMute, isMuted } from "./WordleSound";
 
 /* ─── STYLES ─────────────────────────────────────────── */
 const STYLES = `
@@ -43,6 +45,15 @@ const STYLES = `
   }
 
   .app { width: 100%; max-width: 600px; padding: 24px 16px 80px; }
+  .wld-mute {
+    position: fixed; top: 14px; right: 14px; z-index: 50;
+    width: 36px; height: 36px; border: 1px solid var(--c-border);
+    border-radius: 50%; background: rgba(22, 27, 34, 0.92); color: var(--c-text);
+    cursor: pointer; font-size: 15px; line-height: 1;
+    transition: border-color 0.15s, opacity 0.15s, transform 0.1s;
+  }
+  .wld-mute:hover { border-color: var(--c-green); }
+  .wld-mute:active { transform: scale(0.92); }
 
   /* ── LOBBY ── */
   .lobby-wrap { padding-top: 48px; }
@@ -207,7 +218,7 @@ const STYLES = `
 
   /* ── GRID ── */
   .grid-wrap { margin-bottom: 16px; }
-  .grid { display: flex; flex-direction: column; gap: 7px; }
+  .grid { display: flex; flex-direction: column; gap: 7px; perspective: 900px; }
   .g-row { display: flex; gap: 7px; justify-content: center; }
 
   .cell {
@@ -220,41 +231,13 @@ const STYLES = `
     transition: border-color 0.1s;
     position: relative;
     backface-visibility: hidden;
+    transform-style: preserve-3d;
   }
   .cell.filled { border-color: #6e7681; }
   .cell.active-row { border-color: #6e7681; }
   .cell.correct { background: #1a4d28; border-color: #3fb950; color: #3fb950; }
   .cell.present { background: #3a2800; border-color: #d29922; color: #d29922; }
   .cell.absent  { background: var(--c-absent); border-color: #3d444d; color: var(--c-absent-text); }
-
-  /* Flip animation */
-  @keyframes flipReveal {
-    0%   { transform: rotateX(0deg); }
-    40%  { transform: rotateX(-90deg); }
-    60%  { transform: rotateX(-90deg); }
-    100% { transform: rotateX(0deg); }
-  }
-  .cell.flip-0 { animation: flipReveal 0.5s ease 0.0s both; }
-  .cell.flip-1 { animation: flipReveal 0.5s ease 0.1s both; }
-  .cell.flip-2 { animation: flipReveal 0.5s ease 0.2s both; }
-  .cell.flip-3 { animation: flipReveal 0.5s ease 0.3s both; }
-  .cell.flip-4 { animation: flipReveal 0.5s ease 0.4s both; }
-
-  /* Pop when typing */
-  @keyframes pop { 0%{transform:scale(1)} 50%{transform:scale(1.12)} 100%{transform:scale(1)} }
-  .cell.pop { animation: pop 0.1s ease; }
-
-  /* Shake row on invalid */
-  @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 60%{transform:translateX(8px)} }
-  .g-row.shake { animation: shake 0.35s ease; }
-
-  /* Bounce when solved */
-  @keyframes bounce { 0%,100%{transform:translateY(0)} 40%{transform:translateY(-12px)} 70%{transform:translateY(-6px)} }
-  .cell.bounce-0 { animation: bounce 0.6s ease 0.05s both; }
-  .cell.bounce-1 { animation: bounce 0.6s ease 0.12s both; }
-  .cell.bounce-2 { animation: bounce 0.6s ease 0.19s both; }
-  .cell.bounce-3 { animation: bounce 0.6s ease 0.26s both; }
-  .cell.bounce-4 { animation: bounce 0.6s ease 0.33s both; }
 
   /* ── NOTICE ── */
   .notice-bar {
@@ -285,11 +268,12 @@ const STYLES = `
   .key.absent  { background: #161b22; color: #3d444d; }
 
   /* ── GAME OVER ── */
-  .gameover-wrap { padding-top: 32px; }
+  .gameover-wrap { padding-top: 32px; min-height: 520px; }
   .go-card { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 16px; padding: 28px 24px; }
   .go-icon { text-align: center; font-size: 48px; margin-bottom: 12px; }
   .go-title { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 4px; }
   .go-sub { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--c-muted); text-align: center; margin-bottom: 24px; }
+  .confetti-bit { position: fixed; z-index: 99; pointer-events: none; will-change: transform, opacity; }
 
   .lb { margin-bottom: 20px; }
   .lb-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--c-bg); margin-bottom: 6px; border: 1px solid transparent; }
@@ -330,8 +314,117 @@ const MEDALS = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣"];
 // ── CHANGED: added av-p5, av-p6 ───────────────────────────
 const AV_CLASSES = ["av-host","av-p2","av-p3","av-p4","av-p5","av-p6"];
 
-const ANIM_FLIP   = "flip";
-const ANIM_BOUNCE = "bounce";
+const CONFETTI_COLORS = ["#3fb950", "#d29922", "#58a6ff", "#bc8cff", "#f85149", "#e6edf3"];
+const EMPTY_GUESSES = [];
+
+function MuteButton() {
+  const [muted, setMutedState] = useState(isMuted());
+
+  function handleToggle() {
+    const nextMuted = toggleMute();
+    setMutedState(nextMuted);
+    if (!nextMuted) playSfx("key");
+  }
+
+  return (
+    <button
+      type="button"
+      className="wld-mute"
+      onClick={handleToggle}
+      onKeyDown={event => event.stopPropagation()}
+      title={muted ? "Bật âm thanh" : "Tắt âm thanh"}
+      aria-label={muted ? "Bật âm thanh" : "Tắt âm thanh"}
+    >
+      {muted ? "OFF" : "ON"}
+    </button>
+  );
+}
+
+function spawnWordleConfetti(host, count = 52) {
+  if (!host) return;
+  const rect = host.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + Math.min(rect.height * 0.42, 240);
+
+  for (let i = 0; i < count; i++) {
+    const particle = document.createElement("span");
+    const size = 5 + Math.random() * 7;
+    particle.className = "confetti-bit";
+    particle.style.cssText = `left:${centerX}px;top:${centerY}px;width:${size}px;height:${size * (i % 3 === 0 ? 1.8 : 1)}px;background:${CONFETTI_COLORS[i % CONFETTI_COLORS.length]};border-radius:${i % 3 === 0 ? "2px" : "50%"};`;
+    host.appendChild(particle);
+
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 0.24 + Math.random() * 0.36;
+    animate(particle, {
+      translateX: [0, Math.cos(angle) * distance * window.innerWidth],
+      translateY: [0, Math.sin(angle) * distance * window.innerHeight + 180],
+      rotate: [0, Math.random() * 720 - 360],
+      scale: [1, 0.25],
+      opacity: [1, 0],
+      duration: 1000 + Math.random() * 900,
+      delay: Math.random() * 280,
+      ease: "outQuart",
+      onComplete: () => particle.remove(),
+    });
+  }
+}
+
+function DissolvedOverlay({ onLeave }) {
+  return (
+    <div className="dissolved-overlay">
+      <div className="dissolved-box">
+        <div style={{ fontSize: 40 }}>💨</div>
+        <h2>Phòng đã đóng</h2>
+        <p>Một người chơi đã thoát khỏi phòng.</p>
+        <button className="btn btn-primary" onClick={onLeave}>Về trang chủ</button>
+      </div>
+    </div>
+  );
+}
+
+function OthersPanel({ myRole, players, wordle }) {
+  const others = PLAYER_SLOTS.filter(role => role !== myRole && players?.[role]);
+  if (!others.length) return null;
+  return (
+    <div className="sidebar-others">
+      {others.map(role => {
+        const playerData = wordle?.playerData?.[role];
+        const guesses = playerData?.guesses ?? EMPTY_GUESSES;
+        const score = playerData?.score ?? 0;
+        const wordDone = playerData?.wordDone;
+        return (
+          <div className="sidebar-player" key={role}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+              <UserAvatar
+                name={players[role]?.name}
+                avatar={players[role]?.avatar}
+                className="av av-host"
+                style={{ width: 30, height: 30, fontSize: 12 }}
+              />
+            </div>
+            <div className="sidebar-player-name">{players[role]?.name}</div>
+            <div className="sidebar-mini-grid">
+              {Array(MAX_GUESSES).fill(null).map((_, rowIndex) => {
+                const guess = guesses[rowIndex];
+                return (
+                  <div className="mini-row" key={rowIndex}>
+                    {Array(5).fill(null).map((_, cellIndex) => (
+                      <div key={cellIndex} className={`mini-cell ${guess?.result?.[cellIndex] ?? ""}`} />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="sidebar-score">{score}đ</div>
+            <div className={`sidebar-status ${wordDone ? "done" : "waiting"}`}>
+              {wordDone ? "✓" : "..."}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function WordleApp() {
   const { displayName, avatar, isGoogle } = useAuth();
@@ -347,27 +440,36 @@ export default function WordleApp() {
   const [timeLeft, setTimeLeft]       = useState(WORD_TIME_MS / 1000);
   const [copiedToast, setCopiedToast] = useState(false);
   const [dissolved, setDissolved]     = useState(false);
-  const [animatingRow, setAnimatingRow] = useState(null);
-  const [shakeRow, setShakeRow]       = useState(false);
   const [isValidating, setIsValidating] = useState(false);
 
   /* ── Display name is driven by auth: Google users are locked to their
      account name; anonymous users can still type their own. ── */
   const fieldName = name || displayName;
 
-  const timerRef       = useRef(null);
-  const validatedCache = useRef(new Set());
+  const appRef = useRef(null);
+  const gridRef = useRef(null);
+  const timerBarRef = useRef(null);
+  const gameoverRef = useRef(null);
+  const timerRef = useRef(null);
   const timeoutFiredRef = useRef(false);
+  const lastWordStartedAtRef = useRef(null);
+  const lastGuessAnimationRef = useRef({ wordIdx: null, count: 0 });
+  const soundStateRef = useRef({ playerCount: null, finished: false });
+  const validatingRef = useRef(false);
+  const mountedRef = useRef(false);
+  const submitContextRef = useRef(null);
 
   const wordle      = roomData?.wordle;
   const players     = roomData?.players;
   const playerCount = Object.keys(players || {}).length;
   const myData      = wordle?.playerData?.[myRole];
   const wordIdx     = wordle?.currentWordIdx ?? 0;
-  const currentGuesses  = myData?.guesses ?? [];
+  const currentGuesses  = myData?.guesses ?? EMPTY_GUESSES;
   const myScore         = myData?.score ?? 0;
   const myWordDone      = myData?.wordDone ?? false;
   const currentAnswer   = wordle?.words?.[wordIdx] ?? "";
+  const guessCount      = currentGuesses.length;
+  const latestGuessResultKey = currentGuesses[guessCount - 1]?.result?.join(",") || "";
 
   const keyColors = {};
   currentGuesses.forEach(g => {
@@ -391,6 +493,52 @@ export default function WordleApp() {
     return () => document.getElementById(id)?.remove();
   }, []);
 
+  useEffect(() => {
+    const logo = appRef.current?.querySelector(".logo-text");
+    const cards = appRef.current?.querySelectorAll(".card");
+    const animations = [];
+    if (logo) {
+      animations.push(animate(logo, {
+        translateY: [28, 0],
+        scale: [0.82, 1],
+        opacity: [0, 1],
+        duration: 650,
+        ease: "outBack",
+      }));
+    }
+    if (cards?.length) {
+      animations.push(animate(cards, {
+        translateY: [22, 0],
+        opacity: [0, 1],
+        duration: 500,
+        delay: stagger(90, { start: 120 }),
+        ease: "outQuart",
+      }));
+    }
+    return () => animations.forEach(animation => animation.revert());
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    submitContextRef.current = {
+      roomId: roomId || null,
+      myRole: myRole || null,
+      wordStartedAt: wordle?.wordStartedAt ?? null,
+      wordDone: myWordDone,
+    };
+  }, [myRole, myWordDone, roomId, wordle?.wordStartedAt]);
+
+  useEffect(() => {
+    if (screen !== "game" || currentInput.length !== 5 || myWordDone || wordle?.roundOver) return;
+    void isGuessValid(currentInput);
+  }, [currentInput, myWordDone, screen, wordle?.roundOver]);
+
   /* ── Presence ── */
   useEffect(() => {
     if (!roomId || !myRole) return;
@@ -413,11 +561,73 @@ export default function WordleApp() {
 
   useEffect(() => {
     if (!roomData) return;
-    const s = roomData.status;
-    if (s === "playing" && screen !== "game") setScreen("game");
-    if (s === "dissolved") setDissolved(true);
-    if ((s === "waiting" || s === "ready") && screen === "lobby" && roomId) setScreen("room");
-  }, [roomData?.status]);
+    const status = roomData.status;
+    let nextScreen = null;
+    if (status === "playing" && screen !== "game") nextScreen = "game";
+    if ((status === "waiting" || status === "ready") && screen === "lobby" && roomId) nextScreen = "room";
+    const shouldDissolve = status === "dissolved" && !dissolved;
+    if (!nextScreen && !shouldDissolve) return;
+
+    const timer = setTimeout(() => {
+      if (nextScreen) setScreen(nextScreen);
+      if (shouldDissolve) setDissolved(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [roomData, roomId, screen, dissolved]);
+
+  useEffect(() => {
+    if (!roomData) return;
+    const previousCount = soundStateRef.current.playerCount;
+    if (previousCount !== null && playerCount > previousCount && (screen === "room" || screen === "game")) {
+      playSfx("join");
+      const rows = appRef.current?.querySelectorAll(".player-row");
+      if (rows?.length) {
+        animate(rows, {
+          translateX: [-12, 0],
+          opacity: [0.4, 1],
+          duration: 360,
+          ease: "outQuart",
+        });
+      }
+    }
+    soundStateRef.current.playerCount = playerCount;
+  }, [playerCount, roomData, screen]);
+
+  useEffect(() => {
+    const startedAt = wordle?.wordStartedAt;
+    if (screen !== "game" || !startedAt || lastWordStartedAtRef.current === startedAt) return;
+    const animations = [];
+    const frame = requestAnimationFrame(() => {
+      if (lastWordStartedAtRef.current === startedAt) return;
+      const firstRound = lastWordStartedAtRef.current === null;
+      lastWordStartedAtRef.current = startedAt;
+      playSfx(firstRound ? "start" : "round");
+
+      const header = appRef.current?.querySelector(".g-top");
+      const pips = appRef.current?.querySelectorAll(".word-pip");
+      if (header) {
+        animations.push(animate(header, {
+          translateY: [-12, 0],
+          opacity: [0, 1],
+          duration: 420,
+          ease: "outQuart",
+        }));
+      }
+      if (pips?.length) {
+        animations.push(animate(pips, {
+          scaleX: [0.2, 1],
+          opacity: [0.35, 1],
+          duration: 420,
+          delay: stagger(65),
+          ease: "outBack",
+        }));
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      animations.forEach(animation => animation.revert());
+    };
+  }, [screen, wordle?.wordStartedAt]);
 
   /* ── Reset on new word ── */
   const prevWordIdx = useRef(0);
@@ -426,33 +636,56 @@ export default function WordleApp() {
     if (wordIdx !== prevWordIdx.current) {
       prevWordIdx.current = wordIdx;
       timeoutFiredRef.current = false;
+      lastGuessAnimationRef.current = { wordIdx, count: 0 };
       setCurrentInput("");
       setNotice({ text: `Từ ${wordIdx + 1}/5 bắt đầu!`, type: "info" });
-      setAnimatingRow(null);
     }
-  }, [wordIdx]);
+  }, [wordle, wordIdx]);
 
   /* ── Timer ── */
   useEffect(() => {
-    if (screen !== "game" || !wordle?.wordStartedAt) return;
+    if (screen !== "game" || !wordle?.wordStartedAt || wordle.roundOver) return;
     clearInterval(timerRef.current);
     timeoutFiredRef.current = false;
+    let lastTick = -1;
 
     timerRef.current = setInterval(() => {
       const elapsed = Date.now() - wordle.wordStartedAt;
       const left = Math.max(0, Math.round((WORD_TIME_MS - elapsed) / 1000));
       setTimeLeft(left);
 
+      if (left > 0 && left <= 5 && left !== lastTick) {
+        lastTick = left;
+        playSfx("tick");
+        if (left <= 3 && timerBarRef.current) {
+          animate(timerBarRef.current, {
+            scaleY: [1, 1.8, 1],
+            opacity: [1, 0.45, 1],
+            duration: 240,
+            ease: "outQuad",
+          });
+        }
+      }
+
       if (left === 0 && !timeoutFiredRef.current) {
         timeoutFiredRef.current = true;
         clearInterval(timerRef.current);
+        playSfx("timeout");
+        const activeRow = gridRef.current?.querySelector(".g-row.is-active");
+        if (activeRow) {
+          animate(activeRow, {
+            translateX: [0, -9, 9, -5, 5, 0],
+            duration: 420,
+            ease: "outQuad",
+          });
+        }
         setNotice({ text: `⏰ Hết giờ! Đáp án: "${currentAnswer.toUpperCase()}"`, type: "timeout" });
         if (myRole === "player1") handleWordTimeout(roomId);
       }
     }, 250);
 
     return () => clearInterval(timerRef.current);
-  }, [wordle?.wordStartedAt, screen]);
+  }, [wordle?.wordStartedAt, wordle?.roundOver, screen, currentAnswer, myRole, roomId]);
 
   /* ── Notice auto-clear ── */
   useEffect(() => {
@@ -461,17 +694,148 @@ export default function WordleApp() {
     return () => clearTimeout(t);
   }, [notice]);
 
+  useEffect(() => {
+    const activeRow = gridRef.current?.querySelector(".g-row.is-active");
+    const filledCells = activeRow?.querySelectorAll(".cell.filled");
+    const cell = filledCells?.[filledCells.length - 1];
+    if (!cell) return;
+    const animation = animate(cell, {
+      scale: [0.72, 1.14, 1],
+      duration: 190,
+      ease: "outBack",
+    });
+    return () => animation.revert();
+  }, [currentInput, myWordDone]);
+
+  useEffect(() => {
+    if (screen !== "game") return;
+    const previous = lastGuessAnimationRef.current;
+    if (wordIdx !== previous.wordIdx) {
+      lastGuessAnimationRef.current = { wordIdx, count: guessCount };
+      return;
+    }
+    if (guessCount <= previous.count || !latestGuessResultKey) return;
+
+    const row = gridRef.current?.querySelectorAll(".g-row")[guessCount - 1];
+    const cells = row?.querySelectorAll(".cell");
+    const latestResults = latestGuessResultKey.split(",");
+    if (!cells?.length || latestResults.length !== 5) return;
+
+    lastGuessAnimationRef.current = { wordIdx, count: guessCount };
+    const flip = animate(cells, {
+      rotateX: [0, 90, 90, 0],
+      duration: 580,
+      delay: stagger(95),
+      ease: "inOutQuad",
+    });
+    latestResults.forEach((result, index) => playSfx(result, 0.12 + index * 0.1));
+
+    let solvedBounce = null;
+    const isSolved = latestResults.every(result => result === "correct");
+    if (isSolved) {
+      solvedBounce = animate(cells, {
+        translateY: [0, -10, 0],
+        scale: [1, 1.14, 1],
+        duration: 520,
+        delay: stagger(75, { start: 500 }),
+        ease: "outBack",
+      });
+      playSfx("solved", 0.62);
+    }
+
+    return () => {
+      if (!row?.isConnected) {
+        flip.revert();
+        solvedBounce?.revert();
+      }
+    };
+  }, [screen, wordIdx, guessCount, latestGuessResultKey]);
+
   /* ── Keyboard handler ── */
-  function handleKey(key) {
+  const showValidationError = useCallback((message) => {
+    setError(message);
+    playSfx("invalid");
+    const activeRow = gridRef.current?.querySelector(".g-row.is-active");
+    if (activeRow) {
+      animate(activeRow, {
+        translateX: [0, -9, 9, -5, 5, 0],
+        duration: 380,
+        ease: "outQuad",
+      });
+    }
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    if (isValidating || validatingRef.current) return;
+    if (currentInput.length !== 5) {
+      showValidationError("Từ phải đủ 5 chữ cái!");
+      return;
+    }
+
+    const guess = currentInput.toLowerCase();
+    const submitContext = submitContextRef.current;
+    if (!submitContext) return;
+
+    validatingRef.current = true;
+    setIsValidating(true);
+    const valid = await isGuessValid(guess);
+    const currentContext = submitContextRef.current;
+    const contextMatches = mountedRef.current && currentContext &&
+      currentContext.roomId === submitContext.roomId &&
+      currentContext.myRole === submitContext.myRole &&
+      currentContext.wordStartedAt === submitContext.wordStartedAt &&
+      !currentContext.wordDone;
+    if (!contextMatches) {
+      validatingRef.current = false;
+      setIsValidating(false);
+      return;
+    }
+
+    if (!valid) {
+      validatingRef.current = false;
+      setIsValidating(false);
+      showValidationError("Từ không hợp lệ!");
+      return;
+    }
+
+    setError("");
+    const result = checkGuess(guess, currentAnswer);
+    const isSolved = result.every(r => r === "correct");
+    const rowIdx = guessCount;
+
+    setCurrentInput("");
+    const accepted = await submitGuess(roomId, myRole, guess, submitContext.wordStartedAt).finally(() => {
+      validatingRef.current = false;
+      setIsValidating(false);
+    });
+    if (!accepted) return;
+
+    const latestContext = submitContextRef.current;
+    if (!mountedRef.current || !latestContext ||
+      latestContext.roomId !== submitContext.roomId ||
+      latestContext.myRole !== submitContext.myRole ||
+      latestContext.wordStartedAt !== submitContext.wordStartedAt) return;
+
+    if (isSolved) {
+      setNotice({ text: `✓ Chính xác! "${currentAnswer.toUpperCase()}"`, type: "solved" });
+    } else if (rowIdx + 1 >= MAX_GUESSES) {
+      setNotice({ text: `✗ Đáp án là "${currentAnswer.toUpperCase()}"`, type: "failed" });
+    }
+  }, [currentAnswer, currentInput, guessCount, isValidating, myRole, roomId, showValidationError]);
+
+  const handleKey = useCallback((key) => {
     if (myWordDone || !wordle || wordle.roundOver) return;
     if (key === "⌫" || key === "BACKSPACE") {
       setCurrentInput(prev => prev.slice(0, -1));
+      playSfx("backspace");
     } else if (key === "ENTER") {
+      playSfx("click");
       handleSubmit();
     } else if (/^[A-Z]$/.test(key) && currentInput.length < 5) {
       setCurrentInput(prev => prev + key);
+      playSfx("key");
     }
-  }
+  }, [currentInput.length, handleSubmit, myWordDone, wordle]);
 
   useEffect(() => {
     const fn = e => {
@@ -482,91 +846,63 @@ export default function WordleApp() {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [currentInput, myWordDone, wordle]);
-
-  async function handleSubmit() {
-    if (currentInput.length !== 5) {
-      setShakeRow(true);
-      setTimeout(() => setShakeRow(false), 400);
-      setError("Từ phải đủ 5 chữ cái!");
-      return;
-    }
-
-    const guess = currentInput.toLowerCase();
-
-    if (!validatedCache.current.has(guess)) {
-      setIsValidating(true);
-      try {
-        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${guess}`);
-        if (!res.ok) {
-          setIsValidating(false);
-          setShakeRow(true);
-          setTimeout(() => setShakeRow(false), 400);
-          setError("Từ không hợp lệ!");
-          return;
-        }
-        validatedCache.current.add(guess);
-      } catch {
-        validatedCache.current.add(guess);
-      }
-      setIsValidating(false);
-    }
-
-    setError("");
-    const result = checkGuess(guess, currentAnswer);
-    const isSolved = result.every(r => r === "correct");
-    const rowIdx = currentGuesses.length;
-
-    setCurrentInput("");
-    setAnimatingRow({ rowIdx, type: ANIM_FLIP });
-    if (isSolved) {
-      setTimeout(() => setAnimatingRow({ rowIdx, type: ANIM_BOUNCE }), 550);
-    }
-
-    await submitGuess(roomId, myRole, guess);
-
-    if (isSolved) {
-      setNotice({ text: `✓ Chính xác! "${currentAnswer.toUpperCase()}"`, type: "solved" });
-    } else if (rowIdx + 1 >= MAX_GUESSES) {
-      setNotice({ text: `✗ Đáp án là "${currentAnswer.toUpperCase()}"`, type: "failed" });
-    }
-  }
+  }, [handleKey]);
 
   /* ── Lobby actions ── */
   async function handleCreate() {
-    if (!fieldName.trim()) return setError("Nhập tên của bạn!");
+    if (!fieldName.trim()) {
+      showValidationError("Nhập tên của bạn!");
+      return;
+    }
     setError("");
+    playSfx("click");
     const id = await createRoom(fieldName.trim(), { avatar });
     setRoomId(id); setMyRole("player1"); setScreen("room");
   }
 
   async function handleJoin() {
-    if (!fieldName.trim()) return setError("Nhập tên của bạn!");
-    if (!inputRoomId.trim()) return setError("Nhập mã phòng!");
+    if (!fieldName.trim()) {
+      showValidationError("Nhập tên của bạn!");
+      return;
+    }
+    if (!inputRoomId.trim()) {
+      showValidationError("Nhập mã phòng!");
+      return;
+    }
     setError("");
+    playSfx("click");
     try {
       const slot = await joinRoom(inputRoomId.toUpperCase(), fieldName.trim(), { avatar });
       setRoomId(inputRoomId.toUpperCase()); setMyRole(slot); setScreen("room");
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      showValidationError(e.message);
+    }
   }
 
   async function handleStart() {
     if (playerCount < 2) return;
+    playSfx("click");
     await startWordleGame(roomId);
   }
 
   async function handleRematch() {
+    playSfx("click");
     await requestWordleRematch(roomId, myRole);
   }
 
   function handleLeave() {
+    playSfx("click");
     setPlayerOnline(roomId, myRole, false);
     setRoomId(""); setMyRole(""); setRoomData(null);
     setScreen("lobby"); setDissolved(false);
     setCurrentInput(""); setError(""); setNotice(null);
+    lastWordStartedAtRef.current = null;
+    lastGuessAnimationRef.current = { wordIdx: null, count: 0 };
+    soundStateRef.current = { playerCount: null, finished: false };
   }
 
   function handleCopy() {
+    playSfx("copy");
     navigator.clipboard?.writeText(roomId).catch(() => {});
     setCopiedToast(true);
     setTimeout(() => setCopiedToast(false), 1800);
@@ -577,93 +913,95 @@ export default function WordleApp() {
     const rows = [];
     for (let i = 0; i < currentGuesses.length; i++) {
       const g = currentGuesses[i];
-      const isAnimRow = animatingRow?.rowIdx === i;
       rows.push({
         cells: g.word.split("").map((ch, j) => ({
           ch: ch.toUpperCase(),
           state: g.result[j],
-          anim: isAnimRow ? `${animatingRow.type}-${j}` : "",
         })),
         isActive: false,
-        shake: false,
       });
     }
     if (rows.length < MAX_GUESSES && !myWordDone) {
       const cells = Array(5).fill(null).map((_, j) => ({
         ch: currentInput[j]?.toUpperCase() ?? "",
         state: currentInput[j] ? "filled" : "active-row",
-        anim: "",
       }));
-      rows.push({ cells, isActive: true, shake: shakeRow });
+      rows.push({ cells, isActive: true });
     }
     while (rows.length < MAX_GUESSES) {
-      rows.push({ cells: Array(5).fill({ ch: "", state: "", anim: "" }), isActive: false, shake: false });
+      rows.push({
+        cells: Array(5).fill({ ch: "", state: "" }),
+        isActive: false,
+      });
     }
     return rows;
   }
 
-  /* ── Sidebar Others ── */
-  function OthersPanel() {
-    const others = PLAYER_SLOTS.filter(r => r !== myRole && players?.[r]);
-    if (!others.length) return null;
-    return (
-      <div className="sidebar-others">
-        {others.map(role => {
-          const pd = wordle?.playerData?.[role];
-          const guesses  = pd?.guesses ?? [];
-          const score    = pd?.score ?? 0;
-          const wordDone = pd?.wordDone;
-          return (
-            <div className="sidebar-player" key={role}>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                <UserAvatar
-                  name={players[role]?.name}
-                  avatar={players[role]?.avatar}
-                  className="av av-host"
-                  style={{ width: 30, height: 30, fontSize: 12 }}
-                />
-              </div>
-              <div className="sidebar-player-name">{players[role]?.name}</div>
-              <div className="sidebar-mini-grid">
-                {Array(MAX_GUESSES).fill(null).map((_, ri) => {
-                  const g = guesses[ri];
-                  return (
-                    <div className="mini-row" key={ri}>
-                      {Array(5).fill(null).map((_, ci) => (
-                        <div key={ci} className={`mini-cell ${g?.result?.[ci] ?? ""}`} />
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="sidebar-score">{score}đ</div>
-              <div className={`sidebar-status ${wordDone ? "done" : "waiting"}`}>
-                {wordDone ? "✓" : "..."}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!wordle?.roundOver) {
+      soundStateRef.current.finished = false;
+      return;
+    }
+    if (soundStateRef.current.finished) return;
+
+    const host = gameoverRef.current;
+    const animations = [];
+    const frame = requestAnimationFrame(() => {
+      if (soundStateRef.current.finished) return;
+      soundStateRef.current.finished = true;
+
+      const scores = Object.values(wordle.playerData || {}).map(player => player.score ?? 0);
+      const topScore = Math.max(0, ...scores);
+      const isWinner = (wordle.playerData?.[myRole]?.score ?? 0) === topScore;
+      playSfx(isWinner ? "win" : "complete");
+
+      spawnWordleConfetti(host, isWinner ? 56 : 18);
+      if (!host) return;
+
+      const icon = host.querySelector(".go-icon");
+      const title = host.querySelector(".go-title");
+      const leaderboardRows = host.querySelectorAll(".lb-row");
+      if (icon) {
+        animations.push(animate(icon, {
+          scale: [0, 1.2, 1],
+          rotate: [-14, 8, 0],
+          duration: 820,
+          delay: 100,
+          ease: "outBack",
+        }));
+      }
+      if (title) {
+        animations.push(animate(title, {
+          translateY: [24, 0],
+          opacity: [0, 1],
+          duration: 520,
+          delay: 220,
+          ease: "outQuart",
+        }));
+      }
+      if (leaderboardRows.length) {
+        animations.push(animate(leaderboardRows, {
+          translateX: [-28, 0],
+          opacity: [0, 1],
+          duration: 420,
+          delay: stagger(75, { start: 300 }),
+          ease: "outQuart",
+        }));
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (!host?.isConnected) animations.forEach(animation => animation.revert());
+    };
+  }, [wordle, myRole]);
 
   /* ═══════════════ RENDER ═══════════════ */
 
-  const DissolvedOverlay = () => (
-    <div className="dissolved-overlay">
-      <div className="dissolved-box">
-        <div style={{ fontSize: 40 }}>💨</div>
-        <h2>Phòng đã đóng</h2>
-        <p>Một người chơi đã thoát khỏi phòng.</p>
-        <button className="btn btn-primary" onClick={handleLeave}>Về trang chủ</button>
-      </div>
-    </div>
-  );
-
   /* LOBBY */
   if (screen === "lobby") return (
-    <div className="app">
-      {dissolved && <DissolvedOverlay />}
+    <div className="app" ref={appRef}>
+      <MuteButton />
+      {dissolved && <DissolvedOverlay onLeave={handleLeave} />}
       <div className="lobby-wrap">
         <div className="logo"><div className="logo-text">Wor<em>dle</em></div></div>
         {/* CHANGED: 4 → 6 */}
@@ -693,8 +1031,9 @@ export default function WordleApp() {
 
   /* ROOM LOBBY */
   if (screen === "room") return (
-    <div className="app">
-      {dissolved && <DissolvedOverlay />}
+    <div className="app" ref={appRef}>
+      <MuteButton />
+      {dissolved && <DissolvedOverlay onLeave={handleLeave} />}
       <div className="card" style={{ marginTop: 32 }}>
         <div className="card-title">Mã phòng</div>
         <div className="room-code-wrap">
@@ -743,9 +1082,10 @@ export default function WordleApp() {
     const rematchCount = Object.keys(wordle.rematch || {}).length;
 
     return (
-      <div className="app">
-        {dissolved && <DissolvedOverlay />}
-        <div className="gameover-wrap">
+      <div className="app" ref={appRef}>
+        <MuteButton />
+        {dissolved && <DissolvedOverlay onLeave={handleLeave} />}
+        <div className="gameover-wrap" ref={gameoverRef}>
           <div className="go-card">
             <div className="go-icon">🏆</div>
             <div className="go-title">Kết quả</div>
@@ -782,7 +1122,8 @@ export default function WordleApp() {
 
   /* LOADING */
   if (screen !== "game" || !wordle) return (
-    <div className="app">
+    <div className="app" ref={appRef}>
+      <MuteButton />
       <div className="loading-wrap">Đang tải...</div>
     </div>
   );
@@ -796,10 +1137,11 @@ export default function WordleApp() {
     PLAYER_SLOTS.some(r => r !== myRole && players?.[r] && !wordle.playerData?.[r]?.wordDone);
 
   return (
-    <div className="app">
-      {dissolved && <DissolvedOverlay />}
+    <div className="app" ref={appRef}>
+      <MuteButton />
+      {dissolved && <DissolvedOverlay onLeave={handleLeave} />}
 
-      <OthersPanel />
+      <OthersPanel myRole={myRole} players={players} wordle={wordle} />
 
       {/* Header */}
       <div className="g-top">
@@ -823,7 +1165,7 @@ export default function WordleApp() {
         <div className="timer-secs" style={{ color: timerColor }}>{timeLeft}s</div>
       </div>
       <div className="timer-bar-wrap">
-        <div className="timer-bar" style={{ width: `${timerPct}%`, background: timerColor }} />
+        <div ref={timerBarRef} className="timer-bar" style={{ width: `${timerPct}%`, background: timerColor }} />
       </div>
 
       {notice && (
@@ -835,11 +1177,11 @@ export default function WordleApp() {
       )}
 
       <div className="grid-wrap">
-        <div className="grid">
+        <div className="grid" ref={gridRef}>
           {rows.map((row, ri) => (
-            <div key={ri} className={`g-row${row.shake ? " shake" : ""}`}>
+            <div key={ri} className={`g-row${row.isActive ? " is-active" : ""}`}>
               {row.cells.map((cell, ci) => (
-                <div key={ci} className={`cell ${cell.state} ${cell.anim}`}>{cell.ch}</div>
+                <div key={ci} className={`cell ${cell.state}`}>{cell.ch}</div>
               ))}
             </div>
           ))}
