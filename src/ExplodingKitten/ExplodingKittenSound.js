@@ -12,6 +12,8 @@
  *   SoundManager.unmute();
  */
 
+import { setThemeMusicMuted } from "../themeMusic";
+
 // ─── Audio context (lazy init — browsers require user gesture first) ──────────
 
 let _ctx = null;
@@ -555,11 +557,13 @@ export const SoundManager = {
   mute() {
     _muted = true;
     if (_masterGain) _masterGain.gain.value = 0;
+    setThemeMusicMuted(true);
   },
 
   unmute() {
     _muted = false;
     if (_masterGain) _masterGain.gain.value = _volume;
+    setThemeMusicMuted(false);
   },
 
   isMuted() { return _muted; },

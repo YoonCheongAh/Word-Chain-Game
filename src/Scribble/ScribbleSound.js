@@ -18,6 +18,8 @@
 
 const MUTE_KEY = "scribble_sound_muted";
 
+import { setThemeMusicMuted } from "../themeMusic";
+
 let ctx = null;
 let masterGain = null;
 let muted = (() => {
@@ -273,6 +275,7 @@ export function setMuted(value) {
   muted = !!value;
   try { localStorage.setItem(MUTE_KEY, muted ? "1" : "0"); } catch { /* ignore */ }
   if (masterGain) masterGain.gain.value = muted ? 0 : 0.6;
+  setThemeMusicMuted(muted);
 }
 
 export function toggleMute() {

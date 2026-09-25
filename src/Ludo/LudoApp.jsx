@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createRoom, joinRoom, listenRoom, setPlayerOnline } from "../roomService";
 import { playSound, setMuted } from "./Ludosound";
+import { playThemeMusic, stopThemeMusic } from "../themeMusic";
 import {
     startLudoGame, rollDiceFirebase, movePawn, requestLudoRematch, rejoinLudo,
     POINTS, PATH, calcAvailableMoves, shouldPassTurn, handleNoMoves,
@@ -476,6 +477,12 @@ export default function LudoApp() {
             document.head.appendChild(el);
         }
         return () => document.getElementById(id)?.remove();
+    }, []);
+
+    /* Theme song */
+    useEffect(() => {
+        playThemeMusic("/theme-song/ludo.mp3");
+        return () => stopThemeMusic();
     }, []);
 
     /* Board resize observer */

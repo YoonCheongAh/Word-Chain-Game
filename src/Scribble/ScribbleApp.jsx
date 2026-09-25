@@ -7,6 +7,7 @@ import UserAvatar from "../components/UserAvatar";
 import DrawingToolbar from "./DrawingToolbar";
 import DrawingCanvas from "./DrawingCanvas";
 import { playSfx, toggleMute, isMuted } from "./ScribbleSound";
+import { playThemeMusic, stopThemeMusic } from "../themeMusic";
 import {
   MODE_CLASSIC,
   ROUND_END_MS,
@@ -1064,7 +1065,7 @@ function Landing({ onJoin, onPlay, onOptions, onExit, name, avatar }) {
       <div className="sb-land-body">
         <div className="sb-menu">
           <button className="sb-menu-btn sb-mb-yellow" onClick={onPlay}>Chơi ngay</button>
-          <button className="sb-menu-btn sb-mb-blue" onClick={onOptions}>Tuỳ chọn</button>
+          <button className="sb-menu-btn sb-mb-blue" onClick={onOptions}>Đổi tên</button>
           <button className="sb-menu-btn sb-mb-coral" onClick={onJoin}>Tham gia phòng</button>
           <button className="sb-menu-btn sb-mb-purple" onClick={onExit}>Thoát</button>
         </div>
@@ -1340,6 +1341,12 @@ export default function ScribbleApp() {
     }
     document.body.classList.add("sb-body");
     return () => { document.body.classList.remove("sb-body"); };
+  }, []);
+
+  /* ── Theme song ── */
+  useEffect(() => {
+    playThemeMusic("/theme-song/scribble-it.mp3");
+    return () => stopThemeMusic();
   }, []);
 
   /* ── Rejoin sau F5 ── */
@@ -1706,7 +1713,6 @@ export default function ScribbleApp() {
                 <div className="sb-pop">
                   <h3>Tuỳ chọn</h3>
                   <input className="sb-pop-inp" value={name} onChange={e => setName(e.target.value)} placeholder="Tên của bạn" />
-                  <p className="sb-hint">Tên sẽ hiển thị cho mọi người trong phòng.</p>
                   <div className="sb-pop-row">
                     <button className="sb-btn sb-btn-dark" onClick={() => setOptsOpen(false)}>Lưu</button>
                     <button className="sb-btn" onClick={() => setOptsOpen(false)}>Đóng</button>
