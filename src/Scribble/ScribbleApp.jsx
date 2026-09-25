@@ -37,6 +37,7 @@ import {
   letterCount,
 } from "./scribbleService";
 import { WORD_PACKAGES } from "./words";
+import { animate, stagger } from "animejs";
 
 const SESSION_KEY = "scribble_session_v1";
 const STEPPER = ["Game Mode", "Visibility", "Words", "Difficulty", "Lobby"];
@@ -69,7 +70,7 @@ const DEFAULT_SETTINGS = () => ({
 
 /* ════════════════════════════════ STYLES ════════════════════════════════ */
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Quicksand:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Quicksand:wght@500;600;700;800&family=Caveat:wght@700&display=swap');
 
 :root {
   --sb-ink: #232323;
@@ -1026,10 +1027,153 @@ body.sb-body {
   .sb-game-bd { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
   .sb-topbar { grid-template-columns: 90px 1fr 90px; }
 }
+
+.sb-scrib-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.sb-doodle {
+  position: absolute;
+  will-change: transform;
+  filter: drop-shadow(0 3px 3px rgba(0,0,0,0.16));
+}
+.sb-confetti-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.sb-confetti-bit { position: absolute; pointer-events: none; will-change: transform, opacity; }
+.sb-title-ch { display: inline-block; opacity: 0; will-change: transform; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-title-ch { opacity: 1; }
+}
 `;
 
 /* ════════════════════════════════ LANDING ════════════════════════════════ */
+const SB_DOODLE_PALETTE = ["#ff5d3a", "#2fbf83", "#3a5bff", "#a44dff", "#ff3d8a", "#0d9488", "#e11d48"];
+const SB_CONFETTI_PALETTE = ["#ff5d3a", "#f4c430", "#2fbf83", "#3a5bff", "#a44dff", "#ff3d8a", "#ffffff"];
+
+const SB_DOODLE_PATHS = {
+  star: "M50 6 L60.5 35.5 L91 38 L67.5 56.5 L76 88 L50 70.5 L24 88 L32.5 56.5 L9 38 L39.5 35.5 Z",
+  heart: "M50 90 C20 62 6 44 6 27 C6 12 22 7 30 15 C37 22 45 29 50 38 C55 29 63 22 70 15 C78 7 94 12 94 27 C94 44 80 62 50 90 Z",
+  squig: "M8 52 C16 24 28 24 36 52 C44 80 56 80 64 52 C72 24 88 24 94 48",
+  zigzag: "M10 80 L26 40 L40 68 L56 26 L70 62 L90 18",
+  cloud: "M26 64 Q10 64 10 52 Q10 42 20 40 Q20 28 34 28 Q44 28 48 36 Q54 30 62 32 Q72 30 74 40 Q86 40 86 52 Q86 62 70 64 Z",
+  bolt: "M58 6 L26 52 L44 52 L38 94 L70 48 L50 48 Z",
+  moon: "M66 14 A40 40 0 1 0 86 60 A30 30 0 1 1 66 14 Z",
+  arrow: "M8 84 C30 40 60 24 84 26 L72 14 L90 20 Z",
+};
+
+const SB_DOODLES = [
+  { shape: "star", size: 54, left: 5, top: 24, rot: 8, drift: 16, dur: 5.6, w: 6 },
+  { shape: "heart", size: 46, left: 13, top: 75, rot: -10, drift: 13, dur: 6, w: 6 },
+  { shape: "star", size: 34, left: 24, top: 16, rot: -12, drift: 12, dur: 5, w: 6 },
+  { shape: "squig", size: 52, left: 34, top: 83, rot: 10, drift: 15, dur: 6.4, w: 6 },
+  { shape: "cloud", size: 72, left: 61, top: 12, rot: 3, drift: 11, dur: 7, w: 6 },
+  { shape: "zigzag", size: 62, left: 86, top: 20, rot: -8, drift: 16, dur: 5.6, w: 6 },
+  { shape: "bolt", size: 40, left: 91, top: 66, rot: 14, drift: 12, dur: 5, w: 6 },
+  { shape: "star", size: 30, left: 81, top: 84, rot: 9, drift: 10, dur: 5.4, w: 6 },
+  { shape: "moon", size: 44, left: 66, top: 70, rot: -14, drift: 14, dur: 6.2, w: 6 },
+  { shape: "heart", size: 28, left: 46, top: 89, rot: 6, drift: 11, dur: 5.2, w: 6 },
+  { shape: "cloud", size: 46, left: 7, top: 44, rot: -6, drift: 12, dur: 6.8, w: 6 },
+  { shape: "arrow", size: 48, left: 22, top: 56, rot: -16, drift: 15, dur: 5.8, w: 6 },
+  { shape: "bolt", size: 34, left: 52, top: 9, rot: -10, drift: 12, dur: 5.2, w: 6 },
+  { shape: "squig", size: 46, left: 71, top: 42, rot: 8, drift: 14, dur: 6, w: 6 },
+  { shape: "moon", size: 32, left: 41, top: 72, rot: 12, drift: 12, dur: 5.6, w: 6 },
+  { shape: "star", size: 40, left: 79, top: 3, rot: -7, drift: 13, dur: 5.4, w: 6 },
+];
+
+function spawnScribbleConfetti(host) {
+  if (!host) return;
+  const rect = host.getBoundingClientRect();
+  const cx = rect.left + rect.width * 0.5;
+  const cy = rect.top + rect.height * 0.46;
+  const count = 48;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("span");
+    el.className = "sb-confetti-bit";
+    const isRect = i % 3 === 0;
+    const s = isRect ? 6 + Math.random() * 5 : 5 + Math.random() * 8;
+    el.style.cssText =
+      `left:${cx}px;top:${cy}px;width:${s}px;height:${isRect ? s * 1.7 : s}px;` +
+      `background:${SB_CONFETTI_PALETTE[i % SB_CONFETTI_PALETTE.length]};` +
+      `border-radius:${isRect ? 1 : 50}%;`;
+    host.appendChild(el);
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 0.3 + Math.random() * 0.32;
+    animate(el, {
+      translateX: [0, Math.cos(angle) * dist * window.innerWidth],
+      translateY: [0, Math.sin(angle) * dist * window.innerHeight],
+      rotate: [0, Math.random() * 720 - 360],
+      scale: [1, 0.25],
+      opacity: [1, 0],
+      duration: 800 + Math.random() * 900,
+      delay: Math.random() * 300,
+      ease: "outQuart",
+      onComplete: () => el.remove(),
+    });
+  }
+}
+
 function Landing({ onJoin, onPlay, onOptions, onExit, name, avatar }) {
+  const scribRef = useRef(null);
+  const confettiRef = useRef(null);
+
+  useEffect(() => {
+    const anims = [];
+
+    (scribRef.current?.querySelectorAll(".sb-doodle") || []).forEach((svg, i) => {
+      const d = SB_DOODLES[i];
+      const path = svg.querySelector("path");
+      if (!d || !path) return;
+      anims.push(animate(path, {
+        strokeDashoffset: [1, 0],
+        duration: 900,
+        delay: 350 + i * 130,
+        ease: "outExpo",
+      }));
+      anims.push(animate(svg, {
+        translateY: [0, d.drift],
+        rotate: [d.rot - 6, d.rot + 6],
+        scale: [1, 1.04],
+        duration: d.dur * 1000,
+        delay: 1300 + i * 130,
+        alternate: true,
+        loop: true,
+        ease: "inOutSine",
+      }));
+    });
+
+    anims.push(animate(".sb-title-ch", {
+      translateY: [36, 0],
+      scale: [0.5, 1],
+      rotate: [16, 0],
+      opacity: [0, 1],
+      duration: 820,
+      delay: stagger(70, { start: 220 }),
+      ease: "outBack",
+    }));
+    anims.push(animate(".sb-title-ch", {
+      translateY: [0, -3],
+      rotate: [-2, 2],
+      duration: 2800,
+      delay: stagger(170, { start: 1200 }),
+      alternate: true,
+      loop: true,
+      ease: "inOutSine",
+    }));
+
+    const btns = document.querySelectorAll(".sb-menu-btn");
+    const pop = animate(btns, {
+      translateY: [56, 0],
+      scale: [0.72, 1],
+      opacity: [0, 1],
+      duration: 660,
+      delay: stagger(120, { start: 340 }),
+      ease: "outBack",
+    });
+    anims.push(pop);
+    pop.then(() => btns.forEach(b => { b.style.transform = ""; b.style.opacity = ""; }));
+
+    spawnScribbleConfetti(confettiRef.current);
+
+    return () => anims.forEach(a => a && a.pause && a.pause());
+  }, []);
+
   const dots = Array.from({ length: 26 }).map((_, i) => ({
     left: (i * 37 + 9) % 100,
     top: (i * 61 + 13) % 88,
@@ -1041,13 +1185,42 @@ function Landing({ onJoin, onPlay, onOptions, onExit, name, avatar }) {
   return (
     <div className="sb-landing">
       <div className="sb-dots" />
+      <div className="sb-confetti-layer" ref={confettiRef} />
+      <div className="sb-scrib-layer" ref={scribRef}>
+        {SB_DOODLES.map((d, i) => (
+          <svg
+            key={i}
+            className="sb-doodle"
+            width={d.size}
+            height={d.size}
+            viewBox="0 0 100 100"
+            style={{ left: `${d.left}%`, top: `${d.top}%`, transform: `rotate(${d.rot - 6}deg)` }}
+            aria-hidden="true"
+          >
+            <path
+              d={SB_DOODLE_PATHS[d.shape]}
+              pathLength={1}
+              fill="none"
+              stroke={SB_DOODLE_PALETTE[i % SB_DOODLE_PALETTE.length]}
+              strokeWidth={d.w}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ strokeDasharray: 1, strokeDashoffset: 1 }}
+            />
+          </svg>
+        ))}
+      </div>
       {dots.map((d, i) => (
         <span key={i} className="sb-dot" style={{ left: `${d.left}%`, top: `${d.top}%`, width: d.r, height: d.r, opacity: d.o, animationDelay: `${d.delay}s` }} />
       ))}
         <header className="sb-land-head">
           <div className="sb-brush">
             <span className="sb-brush-splat" aria-hidden="true" />
-            <span className="sb-brush-name">Scribble it!</span>
+            <span className="sb-brush-name" aria-label="Scribble it!">
+              {"Scribble it!".split("").map((ch, i) => (
+                <span key={i} className="sb-title-ch">{ch === " " ? "\u00A0" : ch}</span>
+              ))}
+            </span>
             <svg className="sb-brush-tool" viewBox="0 0 40 64" aria-hidden="true">
               <rect x="14" y="0" width="12" height="18" rx="3" fill="#0d0d0d" />
               <rect x="9" y="15" width="22" height="11" rx="3" fill="#f4c430" />
