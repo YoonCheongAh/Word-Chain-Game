@@ -1,8 +1,9 @@
 /**
- * ScribbleSound.js — Web Audio API sound module for Scribble It!
- * No external files needed — all sounds are synthesized.
+ * ScribbleSound.js — sound module cho Scribble It!
+ * Đa số hiệu ứng được tổng hợp bằng Web Audio API; riêng tiếng bút chạm giấy
+ * khi vẽ dùng file mp3 thật (draw-sound-effect.mp3).
  * Vẫn giữ phong cách "crayon" vui tươi, nhẹ nhàng:
- *   - đầu bút chạm giấy lục xục nhẹ khi vẽ
+ *   - tiếng bút chạm giấy lục xục nhẹ khi vẽ
  *   - tick đếm ngược giây cuối
  *   - chime reo khi có người đoán đúng / người chơi vào phòng
  *   - fanfare khi thắng, trombone buồn khi thua
@@ -13,15 +14,27 @@
  *   toggleMute();
  *   if (isMuted()) ...
  *
+ * Tiếng bút khi vẽ nên gọi cặp start/stop để giữ chuột vẽ nét dài vẫn có tiếng:
+ *   import { startDrawSound, stopDrawSound } from "./ScribbleSound";
+ *   startDrawSound();  // pointerdown
+ *   stopDrawSound();   // pointerup / pointercancel
+ *
  * Trạng thái muted được lưu localStorage để nhớ giữa các lần chơi.
  */
 
 const MUTE_KEY = "scribble_sound_muted";
+const DRAW_CLIP_SRC = "/theme-song/draw-sound-effect.mp3";
+const DRAW_CLIP_VOLUME = 0.4;
+/** Clip gốc dài ~5s — mỗi lần phát chỉ nghe đoạn đầu để khỏi bị kéo dài. */
+const DRAW_CLIP_SNIPPET_MS = 400;
 
 import { setThemeMusicMuted } from "../themeMusic";
 
 let ctx = null;
 let masterGain = null;
+let drawClip = null;
+let drawClipTimer = null;
+let drawClipActive = false;
 let muted = (() => {
   try { return localStorage.getItem(MUTE_KEY) === "1"; } catch { return false; }
 })();
@@ -35,6 +48,70 @@ function getCtx() {
   }
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
+}
+
+/**
+ * Clip mp3 dùng Audio element riêng (không nối vào masterGain vì masterGain
+ * chỉ nhận node của AudioContext).
+ */
+function getDrawClip() {
+  if (typeof window === "undefined") return null;
+  if (!drawClip) {
+    try {
+      drawClip = new Audio(DRAW_CLIP_SRC);
+      drawClip.preload = "auto";
+      drawClip.volume = DRAW_CLIP_VOLUME;
+    } catch {
+      return null;
+    }
+  }
+  return drawClip;
+}
+
+function pauseDrawClip() {
+  if (!drawClip) return;
+  try {
+    drawClip.pause();
+    drawClip.currentTime = 0;
+  } catch { /* ignore */ }
+}
+
+/** Nghe đoạn đầu clip rồi tự tua về 0, lặp lại khi còn giữ chuột vẽ. */
+function playDrawSnippet() {
+  const el = getDrawClip();
+  if (!el || muted || !drawClipActive) return;
+  try {
+    el.pause();
+    el.currentTime = 0;
+    const p = el.play();
+    if (p?.catch) p.catch(() => { drawClipActive = false; clearDrawTimer(); });
+  } catch {
+    drawClipActive = false;
+    clearDrawTimer();
+    return;
+  }
+  drawClipTimer = setTimeout(playDrawSnippet, DRAW_CLIP_SNIPPET_MS);
+}
+
+function clearDrawTimer() {
+  if (drawClipTimer) {
+    clearTimeout(drawClipTimer);
+    drawClipTimer = null;
+  }
+}
+
+/** Bắt đầu tiếng bút chạm giấy — giữ chuột vẽ nét dài thì tiếng chạy liên tục. */
+export function startDrawSound() {
+  if (muted) return;
+  drawClipActive = true;
+  playDrawSnippet();
+}
+
+/** Dừng tiếng bút — gọi khi nhả chuột / hủy nét. */
+export function stopDrawSound() {
+  drawClipActive = false;
+  clearDrawTimer();
+  pauseDrawClip();
 }
 
 /** Oscillator node: tần số cố định với envelope giảm dần. */
@@ -104,11 +181,9 @@ const SOUNDS = {
     osc(ac, "square", 1200, t, 0.025, 0.06);
   },
 
-  /** Bút chì chạm giấy: tiếng "lục sục" nhẹ, không gắt. */
-  pencil(ac) {
-    const t = ac.currentTime;
-    noise(ac, t, 0.05, 0.07, "bandpass", 1800, 1.2);
-    osc(ac, "triangle", 320, t, 0.05, 0.05);
+  /** Bút chì chạm giấy: clip mp3 thật (draw-sound-effect.mp3), lặp khi còn giữ chuột. */
+  pencil() {
+    startDrawSound();
   },
 
   /** Tẩy: tiếng "xoạt" mềm, cao hơn bút. */
@@ -275,6 +350,7 @@ export function setMuted(value) {
   muted = !!value;
   try { localStorage.setItem(MUTE_KEY, muted ? "1" : "0"); } catch { /* ignore */ }
   if (masterGain) masterGain.gain.value = muted ? 0 : 0.6;
+  if (muted) stopDrawSound();
   setThemeMusicMuted(muted);
 }
 

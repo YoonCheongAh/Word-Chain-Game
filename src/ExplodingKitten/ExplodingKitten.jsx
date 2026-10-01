@@ -7,7 +7,7 @@ import { createRoom, joinRoom, listenRoom, rejoinRoom } from '../roomService';
 import { useAuth } from '../auth/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import { SoundManager } from './ExplodingKittenSound';
-import { playThemeMusic, stopThemeMusic } from '../themeMusic';
+import { playThemeMusic, stopThemeMusic, setThemeMusicMuted } from '../themeMusic';
 import {
   startGame, drawCard, playCard, placeBombAfterDefuse,
   giveFavorCard, stealPairCard, stealTripleCard, closeSeeTheFuture, requestRematch,
@@ -110,11 +110,18 @@ export default function ExplodingKitten() {
   const [connected, setConnected] = useState(true);
   const nopeTimerRef = useRef(null);
 
-  /* Theme song */
+  /* Theme song — phát ở màn hình mới vào + phòng chờ, vào trận là tắt */
   useEffect(() => {
+    setThemeMusicMuted(SoundManager.isMuted());
+  }, []);
+
+  const inMatch = screen === 'game';
+
+  useEffect(() => {
+    if (inMatch) return;
     playThemeMusic('/theme-song/exploding-kitten.mp3');
     return () => stopThemeMusic();
-  }, []);
+  }, [inMatch]);
 
   /* ── Display name is driven by auth: Google users are locked to their
        account name; anonymous users can still type their own. ── */

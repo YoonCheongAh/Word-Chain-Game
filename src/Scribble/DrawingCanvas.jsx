@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { SIZE_LEVELS } from "./scribbleService";
-import { playSfx } from "./ScribbleSound";
+import { playSfx, startDrawSound, stopDrawSound } from "./ScribbleSound";
 
 /* ─────────────────────────────────────────────
    DrawingCanvas — <canvas> thuần dùng Pointer Events
@@ -181,7 +181,7 @@ export default function DrawingCanvas({
     refresh();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { syncSizes(); redrawRef.current(); }) : null;
     ro?.observe(wrapRef.current);
-    return () => ro?.disconnect();
+    return () => { ro?.disconnect(); stopDrawSound(); };
   }, []);
 
   const getPoint = (e) => {
@@ -223,7 +223,8 @@ export default function DrawingCanvas({
 
     e.preventDefault();
     if (p.activeTool === "pen" || p.activeTool === "eraser") {
-      playSfx(p.activeTool === "eraser" ? "eraser" : "pencil");
+      if (p.activeTool === "eraser") playSfx("eraser");
+      else startDrawSound();
     }
     canRef.current.setPointerCapture(e.pointerId);
     pendingRef.current = {
@@ -253,6 +254,7 @@ export default function DrawingCanvas({
   };
 
   const endStroke = () => {
+    stopDrawSound();
     const pen = pendingRef.current;
     if (!pen) return;
     pendingRef.current = null;

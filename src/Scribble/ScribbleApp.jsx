@@ -7,7 +7,7 @@ import UserAvatar from "../components/UserAvatar";
 import DrawingToolbar from "./DrawingToolbar";
 import DrawingCanvas from "./DrawingCanvas";
 import { playSfx, toggleMute, isMuted } from "./ScribbleSound";
-import { playThemeMusic, stopThemeMusic } from "../themeMusic";
+import { playThemeMusic, stopThemeMusic, setThemeMusicMuted } from "../themeMusic";
 import {
   MODE_CLASSIC,
   ROUND_END_MS,
@@ -1516,11 +1516,18 @@ export default function ScribbleApp() {
     return () => { document.body.classList.remove("sb-body"); };
   }, []);
 
-  /* ── Theme song ── */
+  /* ── Theme song: màn hình mới vào + phòng chờ, vào trận là tắt ── */
+  const inMatch = roomData?.status === "playing" || roomData?.status === "finished";
+
   useEffect(() => {
+    setThemeMusicMuted(isMuted());
+  }, []);
+
+  useEffect(() => {
+    if (inMatch) return;
     playThemeMusic("/theme-song/scribble-it.mp3");
     return () => stopThemeMusic();
-  }, []);
+  }, [inMatch]);
 
   /* ── Rejoin sau F5 ── */
   useEffect(() => {

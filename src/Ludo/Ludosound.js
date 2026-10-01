@@ -17,8 +17,6 @@
  *   playSound("special");   // nước đi đặc biệt (ra số 6)
  */
 
-import { setThemeMusicMuted } from "../themeMusic";
-
 let ctx = null;
 let muted = false;
 
@@ -205,7 +203,6 @@ export function playSound(name) {
  */
 export function setMuted(value) {
     muted = value;
-    setThemeMusicMuted(muted);
 }
 
 export function isMuted() {
